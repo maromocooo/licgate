@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
-const userAgent = "licgate (https://github.com/licgate/licgate)"
+const userAgent = "licgate (https://github.com/maromocooo/licgate)"
 
 func getJSON(u string, v any) error {
 	req, err := http.NewRequest("GET", u, nil)

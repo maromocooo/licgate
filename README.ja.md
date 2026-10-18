@@ -32,12 +32,12 @@ licgate はプロジェクトが取り込むすべてのパッケージを調べ
 
 ## インストール
 
-**Ubuntu / Debian**（amd64・arm64）は、[最新リリース](https://github.com/licgate/licgate/releases/latest)の `.deb` を使います。
+**Ubuntu / Debian**（amd64・arm64）は、[最新リリース](https://github.com/maromocooo/licgate/releases/latest)の `.deb` を使います。
 
 ```sh
 arch=$(dpkg --print-architecture)   # amd64 または arm64
 ver=0.1.0
-curl -fLO "https://github.com/licgate/licgate/releases/download/v${ver}/licgate_${ver}_${arch}.deb"
+curl -fLO "https://github.com/maromocooo/licgate/releases/download/v${ver}/licgate_${ver}_${arch}.deb"
 sudo apt install "./licgate_${ver}_${arch}.deb"
 ```
 
@@ -51,7 +51,7 @@ sudo install licgate_0.1.0_linux_amd64/licgate /usr/local/bin/
 **ソースから**（Go 1.24 以上）:
 
 ```sh
-go install github.com/licgate/licgate/cmd/licgate@latest
+go install github.com/maromocooo/licgate/cmd/licgate@latest
 ```
 
 licgate 自体は実行時の依存を持ちません。ただし `go`（Go プロジェクト）や `cargo`（Rust）、インストール済みの `node_modules` や Python の仮想環境があれば、それらを使ってより正確に判定します。

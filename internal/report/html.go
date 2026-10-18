@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/policy"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/policy"
 )
 
 type htmlRow struct {

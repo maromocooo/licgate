@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	lm "github.com/licgate/licgate/internal/model"
-	"github.com/licgate/licgate/internal/policy"
-	"github.com/licgate/licgate/internal/report"
+	lm "github.com/maromocooo/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/policy"
+	"github.com/maromocooo/licgate/internal/report"
 )
 
 func sampleGraph() *lm.Graph {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 func detectComposer(dir string) bool { return exists(filepath.Join(dir, "composer.lock")) }

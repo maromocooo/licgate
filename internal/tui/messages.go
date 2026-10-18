@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/licgate/licgate/internal/i18n"
+import "github.com/maromocooo/licgate/internal/i18n"
 
 func init() {
 	i18n.Add(map[string][2]string{

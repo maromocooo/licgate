@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/licgate/licgate/internal/license"
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/license"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 // IngestSBOMFile reads a CycloneDX or SPDX JSON document.

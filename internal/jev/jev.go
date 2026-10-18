@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/license"
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/license"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 // Client talks to the System One API directly or through OpenRouter.

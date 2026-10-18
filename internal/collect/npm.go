@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 func detectNPM(dir string) bool { return exists(filepath.Join(dir, "package.json")) }

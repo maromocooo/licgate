@@ -48,12 +48,12 @@ Every verdict comes with the reasons and the dependency path that pulled the pac
 ## Install
 
 **Ubuntu / Debian** (amd64 or arm64) — download the `.deb` from the
-[latest release](https://github.com/licgate/licgate/releases/latest):
+[latest release](https://github.com/maromocooo/licgate/releases/latest):
 
 ```sh
 arch=$(dpkg --print-architecture)   # amd64 or arm64
 ver=0.1.0
-curl -fLO "https://github.com/licgate/licgate/releases/download/v${ver}/licgate_${ver}_${arch}.deb"
+curl -fLO "https://github.com/maromocooo/licgate/releases/download/v${ver}/licgate_${ver}_${arch}.deb"
 sudo apt install "./licgate_${ver}_${arch}.deb"
 ```
 
@@ -67,7 +67,7 @@ sudo install licgate_0.1.0_linux_amd64/licgate /usr/local/bin/
 **From source** (Go 1.24+):
 
 ```sh
-go install github.com/licgate/licgate/cmd/licgate@latest
+go install github.com/maromocooo/licgate/cmd/licgate@latest
 ```
 
 licgate itself has no runtime dependencies. For the most accurate results it
@@ -113,7 +113,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: "1.24" }
       - run: npm ci            # or: uv sync / cargo fetch / go mod download …
-      - run: go install github.com/licgate/licgate/cmd/licgate@latest
+      - run: go install github.com/maromocooo/licgate/cmd/licgate@latest
       - run: licgate report --format md -o licgate.md --fail-on block
       - if: always()
         run: cat licgate.md >> "$GITHUB_STEP_SUMMARY"

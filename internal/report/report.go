@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/license"
-	"github.com/licgate/licgate/internal/model"
-	"github.com/licgate/licgate/internal/policy"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/license"
+	"github.com/maromocooo/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/policy"
 )
 
 // Meta is information about the run.

@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 func detectGo(dir string) bool { return exists(filepath.Join(dir, "go.mod")) }

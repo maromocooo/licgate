@@ -9,7 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/licgate/licgate/internal/policy"
+	"github.com/maromocooo/licgate/internal/policy"
 )
 
 // FileName is the default config file name.
@@ -61,7 +61,7 @@ func Find(dir string) string { return filepath.Join(dir, FileName) }
 // Template renders a commented config file.
 func Template(c Config) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, `# licgate configuration — https://github.com/licgate/licgate
+	fmt.Fprintf(&b, `# licgate configuration — https://github.com/maromocooo/licgate
 #
 # The license you intend to publish under: an SPDX expression
 # (e.g. "MIT", "Apache-2.0", "GPL-3.0-or-later", "MIT OR Apache-2.0")

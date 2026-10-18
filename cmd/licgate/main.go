@@ -17,13 +17,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
 
-	"github.com/licgate/licgate/internal/collect"
-	"github.com/licgate/licgate/internal/config"
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/jev"
-	"github.com/licgate/licgate/internal/policy"
-	"github.com/licgate/licgate/internal/report"
-	"github.com/licgate/licgate/internal/tui"
+	"github.com/maromocooo/licgate/internal/collect"
+	"github.com/maromocooo/licgate/internal/config"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/jev"
+	"github.com/maromocooo/licgate/internal/policy"
+	"github.com/maromocooo/licgate/internal/report"
+	"github.com/maromocooo/licgate/internal/tui"
 )
 
 var version = "0.1.0-dev"

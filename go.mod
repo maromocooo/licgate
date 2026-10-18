@@ -1,4 +1,4 @@
-module github.com/licgate/licgate
+module github.com/maromocooo/licgate
 
 go 1.24.2
 

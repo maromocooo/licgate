@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/policy"
-	"github.com/licgate/licgate/internal/report"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/policy"
+	"github.com/maromocooo/licgate/internal/report"
 )
 
 type choice struct {

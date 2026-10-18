@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 func fakeServer(t *testing.T, choice string, prob, orLater float64, status *int) *httptest.Server {

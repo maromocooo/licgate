@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 func graphWith(comps ...*model.Component) *model.Graph {

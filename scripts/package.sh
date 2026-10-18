@@ -19,8 +19,8 @@ VERSION="${VERSION#v}"
 # Debian versions must start with a digit.
 DEB_VERSION="$VERSION"
 [[ "$DEB_VERSION" =~ ^[0-9] ]] || DEB_VERSION="0.0.0+${DEB_VERSION}"
-MAINTAINER="${LICGATE_MAINTAINER:-licgate maintainers <noreply@example.com>}"
-HOMEPAGE="${LICGATE_HOMEPAGE:-https://github.com/licgate/licgate}"
+MAINTAINER="${LICGATE_MAINTAINER:-maromocooo <maromocooo@users.noreply.github.com>}"
+HOMEPAGE="${LICGATE_HOMEPAGE:-https://github.com/maromocooo/licgate}"
 
 rm -rf dist
 mkdir -p dist

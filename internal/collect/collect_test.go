@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 func write(t *testing.T, root, rel, content string) {

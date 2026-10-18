@@ -14,9 +14,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/licgate/licgate/internal/i18n"
-	"github.com/licgate/licgate/internal/license"
-	"github.com/licgate/licgate/internal/model"
+	"github.com/maromocooo/licgate/internal/i18n"
+	"github.com/maromocooo/licgate/internal/license"
+	"github.com/maromocooo/licgate/internal/model"
 )
 
 // Options controls collection.
