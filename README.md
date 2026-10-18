@@ -47,9 +47,35 @@ Every verdict comes with the reasons and the dependency path that pulled the pac
 
 ## Install
 
+**Ubuntu / Debian** (amd64 or arm64) — download the `.deb` from the
+[latest release](https://github.com/licgate/licgate/releases/latest):
+
 ```sh
-go install github.com/licgate/licgate/cmd/licgate@latest   # Go 1.24+
+arch=$(dpkg --print-architecture)   # amd64 or arm64
+ver=0.1.0
+curl -fLO "https://github.com/licgate/licgate/releases/download/v${ver}/licgate_${ver}_${arch}.deb"
+sudo apt install "./licgate_${ver}_${arch}.deb"
 ```
+
+**Any Linux / macOS** — the release `.tar.gz` contains a single static binary:
+
+```sh
+tar xzf licgate_0.1.0_linux_amd64.tar.gz
+sudo install licgate_0.1.0_linux_amd64/licgate /usr/local/bin/
+```
+
+**From source** (Go 1.24+):
+
+```sh
+go install github.com/licgate/licgate/cmd/licgate@latest
+```
+
+licgate itself has no runtime dependencies. For the most accurate results it
+uses the toolchains you already have when present: `go` (Go projects), `cargo`
+(Rust), and an installed `node_modules` / Python virtualenv.
+
+Maintainers: `scripts/package.sh 0.1.0` builds all archives and `.deb` files
+into `dist/`; pushing a `v*` tag does the same in CI and publishes a release.
 
 ## Use
 

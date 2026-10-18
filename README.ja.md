@@ -32,9 +32,31 @@ licgate はプロジェクトが取り込むすべてのパッケージを調べ
 
 ## インストール
 
+**Ubuntu / Debian**（amd64・arm64）は、[最新リリース](https://github.com/licgate/licgate/releases/latest)の `.deb` を使います。
+
 ```sh
-go install github.com/licgate/licgate/cmd/licgate@latest   # Go 1.24 以上
+arch=$(dpkg --print-architecture)   # amd64 または arm64
+ver=0.1.0
+curl -fLO "https://github.com/licgate/licgate/releases/download/v${ver}/licgate_${ver}_${arch}.deb"
+sudo apt install "./licgate_${ver}_${arch}.deb"
 ```
+
+**その他の Linux / macOS** は、リリースの `.tar.gz` に入っている単体のバイナリを置くだけです。
+
+```sh
+tar xzf licgate_0.1.0_linux_amd64.tar.gz
+sudo install licgate_0.1.0_linux_amd64/licgate /usr/local/bin/
+```
+
+**ソースから**（Go 1.24 以上）:
+
+```sh
+go install github.com/licgate/licgate/cmd/licgate@latest
+```
+
+licgate 自体は実行時の依存を持ちません。ただし `go`（Go プロジェクト）や `cargo`（Rust）、インストール済みの `node_modules` や Python の仮想環境があれば、それらを使ってより正確に判定します。
+
+メンテナー向け: `scripts/package.sh 0.1.0` で全アーカイブと `.deb` を `dist/` に作成します。`v*` タグを push すると CI が同じ処理を行い、リリースを公開します。
 
 ## 使い方
 
