@@ -22,7 +22,7 @@ jobs:
       - name: Check licgate's own dependencies
         run: |
           sudo dpkg -i dist/licgate_*_amd64.deb
-          licgate --no-tui -l MIT
+          licgate --no-tui
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

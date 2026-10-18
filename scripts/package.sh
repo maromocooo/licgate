@@ -30,8 +30,10 @@ build() { # os arch outdir
 		-ldflags "-s -w -X main.version=${VERSION}" -o "$3/licgate" ./cmd/licgate
 }
 
-docs=(README.md README.ja.md)
-[[ -f LICENSE ]] && docs+=(LICENSE)
+# Binaries contain our Go dependencies, so ship their notices (licgate
+# checks itself and writes them).
+go run ./cmd/licgate notice --no-tui -q -o dist/THIRD_PARTY_NOTICES.md .
+docs=(README.md README.ja.md LICENSE dist/THIRD_PARTY_NOTICES.md)
 
 for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 	os="${target%/*}"
@@ -48,6 +50,24 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 		mkdir -p "$pkg/DEBIAN" "$pkg/usr/bin" "$pkg/usr/share/doc/licgate"
 		install -m 0755 "$stage/licgate" "$pkg/usr/bin/licgate"
 		install -m 0644 "${docs[@]}" "$pkg/usr/share/doc/licgate/"
+		# Debian keeps /usr/share/doc/<pkg>/copyright even on minimal images
+		# that drop other docs, so the license and third-party notices go
+		# there too.
+		{
+			cat <<COPYRIGHT
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: licgate
+Source: ${HOMEPAGE}
+
+Files: *
+Copyright: maromocooo
+License: Apache-2.0
+ On Debian systems the full text is in /usr/share/common-licenses/Apache-2.0.
+ The licgate binary includes third-party Go modules; their licenses and
+ copyright notices follow.
+COPYRIGHT
+			sed 's/^/ /; s/^ $/ ./' dist/THIRD_PARTY_NOTICES.md
+		} >"$pkg/usr/share/doc/licgate/copyright"
 		cat >"$pkg/DEBIAN/control" <<EOF
 Package: licgate
 Version: ${DEB_VERSION}
@@ -69,5 +89,6 @@ EOF
 done
 
 rm -rf dist/stage
+rm -f dist/THIRD_PARTY_NOTICES.md
 (cd dist && sha256sum ./*.tar.gz ./*.deb | sed 's# \./# #' >checksums.txt)
 ls -1 dist

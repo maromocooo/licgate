@@ -173,3 +173,7 @@ licgate encodes widely accepted compatibility rules (FSF's GPL compatibility lis
 linking, network clauses) — not every license and not every legal nuance. Unknown licenses, custom
 terms and ambiguous cases are surfaced as `REVIEW` rather than guessed. Output language follows
 `$LANG` (`--lang en|ja`).
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

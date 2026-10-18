@@ -8,6 +8,6 @@ test:
 	go test ./...
 
 check: build
-	./licgate -l MIT --no-tui
+	./licgate --no-tui
 
 .PHONY: build test check

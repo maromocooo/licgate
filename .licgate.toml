@@ -1,5 +1,5 @@
-# licgate checks itself. Set `license` to the license you publish licgate
-# under (CI currently passes -l MIT on the command line).
+# licgate checks its own dependencies before every release.
+license = "Apache-2.0"
 distribution = "binary"
 fail_on = "block"
 
