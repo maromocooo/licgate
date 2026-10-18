@@ -304,7 +304,7 @@ func (m *model) apply(s policy.Settings) {
 		return
 	}
 	m.res = m.o.Reevaluate(s)
-	m.meta.Failed = m.res.Worst() >= m.o.FailOn
+	m.meta.Failed = m.res.Worst() >= m.o.FailOn || m.res.Incomplete()
 	m.cursor, m.offset = 0, 0
 	m.refilter()
 	m.setStatus(i18n.T("t.reevaluated", m.res.Outbound.Expr, string(s.Distribution)))
@@ -641,6 +641,9 @@ func Run(o Options) (int, error) {
 	}
 	fmt.Println()
 	fmt.Println(report.Verdict(fm.res))
+	if fm.res.Incomplete() {
+		return 2, nil
+	}
 	if fm.meta.Failed {
 		return 1, nil
 	}

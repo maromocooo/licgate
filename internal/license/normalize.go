@@ -60,7 +60,7 @@ var aliases = map[string]string{
 	"cc0": "CC0-1.0", "cc0 1 0": "CC0-1.0", "cc0 1 0 universal": "CC0-1.0", "cc0 universal": "CC0-1.0",
 	"cc0 1 0 universal cc0 1 0 public domain dedication": "CC0-1.0",
 	"wtfpl": "WTFPL",
-	"mpl":   "MPL-2.0", "mpl 2": "MPL-2.0", "mpl 2 0": "MPL-2.0", "mpl2": "MPL-2.0", "mozilla public license 2 0": "MPL-2.0",
+	"mpl":   RefMPL, "mpl 2": "MPL-2.0", "mpl 2 0": "MPL-2.0", "mpl2": "MPL-2.0", "mozilla public license 2 0": "MPL-2.0",
 	"mozilla public license 2 0 mpl 2 0": "MPL-2.0", "mozilla public license version 2 0": "MPL-2.0",
 	"mozilla public license 1 1": "MPL-1.1", "mozilla public license 1 1 mpl 1 1": "MPL-1.1",
 	"lgpl": RefLGPL, "lgpl license": RefLGPL, "gnu lgpl": RefLGPL, "gnu lesser general public license": RefLGPL,
@@ -77,7 +77,9 @@ var aliases = map[string]string{
 	"gpl":                                                       RefGPL, "gpl license": RefGPL, "gnu gpl": RefGPL, "gnu general public license": RefGPL, "gnu general public license gpl": RefGPL,
 	"gplv2": "GPL-2.0-only", "gpl 2": "GPL-2.0-only", "gpl v2": "GPL-2.0-only", "gpl 2 0": "GPL-2.0-only",
 	"gplv2 plus": "GPL-2.0-or-later", "gpl 2 plus": "GPL-2.0-or-later", "gpl v2 plus": "GPL-2.0-or-later",
-	"gpl 2 or later": "GPL-2.0-or-later", "gpl 2 0 or later": "GPL-2.0-or-later",
+	"gpl 2 or later": "GPL-2.0-or-later", "gpl v2 or later": "GPL-2.0-or-later", "gplv2 or later": "GPL-2.0-or-later",
+	"gpl v3 or later": "GPL-3.0-or-later", "gplv3 or later": "GPL-3.0-or-later", "lgpl v2 1 or later": "LGPL-2.1-or-later",
+	"lgpl v3 or later": "LGPL-3.0-or-later", "lgplv3 or later": "LGPL-3.0-or-later", "gpl 2 0 or later": "GPL-2.0-or-later",
 	"gplv3": "GPL-3.0-only", "gpl 3": "GPL-3.0-only", "gpl v3": "GPL-3.0-only", "gpl 3 0": "GPL-3.0-only",
 	"gplv3 plus": "GPL-3.0-or-later", "gpl 3 plus": "GPL-3.0-or-later", "gpl v3 plus": "GPL-3.0-or-later",
 	"gpl 3 or later": "GPL-3.0-or-later", "gpl 3 0 or later": "GPL-3.0-or-later",
@@ -94,7 +96,7 @@ var aliases = map[string]string{
 	"gnu affero general public license v3 or later agplv3 plus": "AGPL-3.0-or-later",
 	"eclipse public license 1 0":                                "EPL-1.0", "eclipse public license 2 0": "EPL-2.0", "epl": "EPL-1.0", "epl 2": "EPL-2.0",
 	"cddl": "CDDL-1.0", "cddl 1 0": "CDDL-1.0", "cddl 1 1": "CDDL-1.1",
-	"artistic": "Artistic-2.0", "artistic 2": "Artistic-2.0", "artistic license 2 0": "Artistic-2.0",
+	"artistic": RefArtistic, "artistic license": RefArtistic, "artistic 2": "Artistic-2.0", "artistic license 2 0": "Artistic-2.0",
 	"eupl": "EUPL-1.2", "eupl 1 2": "EUPL-1.2", "european union public licence 1 2 eupl 1 2": "EUPL-1.2",
 	"sspl": "SSPL-1.0", "server side public license": "SSPL-1.0", "busl": "BUSL-1.1", "bsl 1 1": "BUSL-1.1",
 	"business source license": "BUSL-1.1", "elastic": "Elastic-2.0", "elastic license 2 0": "Elastic-2.0", "elv2": "Elastic-2.0",
@@ -152,10 +154,11 @@ func Normalize(raw string) Normalized {
 	if v, ok := aliases[squash(s)]; ok {
 		return Normalized{Expr: v, Guessed: true}
 	}
-	// 2b) drop parentheticals such as "(with FOSS License Exception)":
-	// exceptions only grant extra permissions, so ignoring them is the
-	// conservative reading.
-	if i := strings.Index(s, "("); i > 0 {
+	// 2b) drop parentheticals such as "(with FOSS License Exception)" or
+	// "(see LICENSE)": exceptions only grant extra permissions, so ignoring
+	// them is the conservative reading. Any other parenthetical ("MIT
+	// (non-commercial use only)") may restrict and is kept.
+	if i := strings.Index(s, "("); i > 0 && droppableParen(s[i:]) {
 		if v, ok := aliases[squash(s[:i])]; ok {
 			return Normalized{Expr: v, Guessed: true}
 		}
@@ -177,6 +180,28 @@ func Normalize(raw string) Normalized {
 		ref = ref[:80]
 	}
 	return Normalized{Expr: ref, Unknown: []string{ref}, Guessed: true}
+}
+
+func droppableParen(p string) bool {
+	lc := strings.ToLower(p)
+	if restrictiveWords(lc) {
+		return false
+	}
+	return strings.Contains(lc, "exception") || strings.HasPrefix(strings.TrimLeft(lc, "( "), "see ") ||
+		strings.Contains(lc, "license file") || strings.Contains(lc, "licence file")
+}
+
+// HasRestrictiveWords reports whether a declaration mentions terms that
+// usually restrict use (commercial, military, …).
+func HasRestrictiveWords(s string) bool { return restrictiveWords(strings.ToLower(s)) }
+
+func restrictiveWords(lc string) bool {
+	for _, w := range []string{"commercial", "evil", "military", "nuclear", "personal use", "educational", "non-profit", "nonprofit", "commons clause", "proprietary"} {
+		if strings.Contains(lc, w) {
+			return true
+		}
+	}
+	return false
 }
 
 var splitRe = regexp.MustCompile(`(?i)\s+or\s+|\s*/\s*|\s+and\s+|\s*;\s*|\s*,\s*|\s*&\s*`)
@@ -210,6 +235,13 @@ func splitAlias(s string) (string, bool) {
 	op := " AND "
 	if isOr && !isAnd {
 		op = " OR "
+	}
+	// "Apache 2.0 / Commons Clause": a restriction is an add-on, never an
+	// alternative.
+	for _, id := range ids {
+		if info, ok := Lookup(id); ok && (info.Category == CatSourceAvailable || info.Category == CatProprietary) {
+			op = " AND "
+		}
 	}
 	// Mixed separators: be conservative (AND).
 	for i, id := range ids {
@@ -298,7 +330,7 @@ var classifierMap = map[string]string{
 	"zlib/libpng License":                                     "Zlib",
 	"Boost Software License 1.0 (BSL-1.0)":                    "BSL-1.0",
 	"Academic Free License (AFL)":                             "AFL-3.0",
-	"Artistic License":                                        "Artistic-2.0",
+	"Artistic License":                                        RefArtistic,
 	"European Union Public Licence 1.2 (EUPL 1.2)":            "EUPL-1.2",
 	"Historical Permission Notice and Disclaimer (HPND)":      "HPND",
 	"Universal Permissive License (UPL)":                      "UPL-1.0",

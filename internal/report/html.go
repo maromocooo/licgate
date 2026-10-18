@@ -70,7 +70,7 @@ func WriteHTML(w io.Writer, r *policy.Result, m Meta) error {
 			N     int
 		}{l.String(), r.Counts[l.String()]})
 	}
-	d.Warnings = append(append([]string{}, r.Graph.Warnings...), r.Warnings...)
+	d.Warnings = r.AllWarnings()
 	for _, o := range ObligationSummary(r) {
 		d.Obligations = append(d.Obligations, struct {
 			Text string

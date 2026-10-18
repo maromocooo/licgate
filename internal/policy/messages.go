@@ -53,18 +53,19 @@ func init() {
 		"r.internal_network": {
 			"%s: internal use is fine, but if users outside your organisation interact with it over a network you must offer them the source.",
 			"%s: 社内利用なら問題ありませんが、社外ユーザーがネットワーク経由で使う場合はソース提供義務が生じます。"},
+		"r.or_none": {"None of the alternatives is compatible.", "どの選択肢も互換ではありません。"},
 		"r.saas_agpl_ok": {
 			"%s in a network service: users of the service must be offered the complete source.",
 			"%s をネットワークサービスで使う場合、利用者に完全なソースを提供する必要があります。"},
 		"r.saas_agpl_block": {
-			"%s: running it in a network service triggers the obligation to publish your service's complete source under the AGPL — incompatible with keeping it closed.",
-			"%s をネットワークサービスで動かすと、サービス全体のソースを AGPL で公開する義務が生じます。非公開のままにはできません。"},
+			"%[1]s: running it in a network service triggers the obligation to offer your service's complete source to its users under %[1]s — incompatible with keeping it closed.",
+			"%[1]s をネットワークサービスで動かすと、サービス全体のソースを %[1]s の条件で利用者に提供する義務が生じます。非公開のままにはできません。"},
 		"r.saas_agpl_review": {
-			"%s: as a network service, the combined program must be available as source under the AGPL to its users. Your own code can keep its license, but the running service is effectively AGPL.",
-			"%s: ネットワークサービスとして提供すると、結合したプログラム全体を AGPL で利用者に公開する必要があります。自分のコードのライセンスは維持できますが、サービスとしては実質 AGPL になります。"},
+			"%[1]s: as a network service, the combined program must be available as source to its users under %[1]s. Your own code can keep its license, but the running service is effectively %[1]s.",
+			"%[1]s: ネットワークサービスとして提供すると、結合したプログラム全体を %[1]s の条件で利用者に公開する必要があります。自分のコードのライセンスは維持できますが、サービスとしては実質 %[1]s になります。"},
 		"r.saas_gpl": {
-			"%s: providing a network service is not distribution under the GPL, so no source obligation today — this changes if you ever ship binaries.",
-			"%s: GPL ではネットワーク提供は「配布」に当たらないため、現時点でソース公開義務はありません。将来バイナリを配布する場合は問題になります。"},
+			"%s: running it only on your servers is not distribution, so its copyleft is not triggered today — this changes if you ever ship it.",
+			"%s: 自社サーバーで動かすだけなら「配布」に当たらないため、現時点でコピーレフトは発動しません。将来配布する場合は問題になります。"},
 
 		"r.link_exception": {
 			"Copyleft with a linking exception (%s): using it from your code is fine; changes to the library itself stay under its license.",
@@ -106,11 +107,23 @@ func init() {
 			"%s is file-level copyleft: fine to combine; publish the source of those files (including your changes to them).",
 			"%s はファイル単位のコピーレフトです。組み合わせは可能ですが、そのファイル（自分の改変を含む）のソースは公開が必要です。"},
 		"r.bin_gpl": {
-			"%s is strong copyleft: a distributed program that includes it must be released under the GPL as a whole, which conflicts with %s.",
-			"%s は強いコピーレフトです。これを含むプログラムを配布するには全体を GPL にする必要があり、%s とは両立しません。"},
+			"%[1]s is strong copyleft: a distributed program that includes it must be released as a whole under %[1]s's terms, which conflicts with %[2]s.",
+			"%[1]s は強いコピーレフトです。これを含むプログラムを配布するには全体を %[1]s の条件で公開する必要があり、%[2]s とは両立しません。"},
 		"r.bin_agpl": {
-			"%s is network copyleft: distributing (or serving) a program that includes it requires releasing the whole under the AGPL, which conflicts with %s.",
-			"%s はネットワークコピーレフトです。これを含むプログラムの配布やサービス提供には全体を AGPL にする必要があり、%s とは両立しません。"},
+			"%[1]s is network copyleft: distributing a program that includes it — or letting people use it over a network — requires releasing the whole under %[1]s's terms, which conflicts with %[2]s.",
+			"%[1]s はネットワークコピーレフトです。これを含むプログラムの配布やネットワーク経由での提供には全体を %[1]s の条件で公開する必要があり、%[2]s とは両立しません。"},
+		"r.saas_eupl": {
+			"%s: the EUPL treats providing online access to the program's functionality as \"communication\", so running it as a service can trigger its source obligations.",
+			"%s: EUPL ではプログラムの機能をオンラインで提供することも「伝達」に含まれるため、サービスとして動かすとソース提供義務が生じる可能性があります。"},
+		"r.saas_frontend": {
+			"%s: if this package ends up in JavaScript served to browsers, that is distribution and its copyleft applies. Fine if it only runs on your servers.",
+			"%s: このパッケージがブラウザに配信される JavaScript に含まれる場合は「配布」にあたり、コピーレフトが適用されます。サーバー側だけで動くなら問題ありません。"},
+		"r.font_aggregate": {
+			"%s covers fonts/assets bundled alongside the program — a separate work (aggregation), not combined code. Keep its license text with the fonts.",
+			"%s はプログラムに同梱されるフォント・素材のライセンスで、コードとの結合ではなく別個の著作物（集合物）として扱えます。フォントと一緒にライセンス文を添えてください。"},
+		"r.lgpl_out_incompatible": {
+			"%[1]s has terms that the GPL version behind %[2]s does not allow (\"no further restrictions\"): the combination may not stay %[2]s.",
+			"%[1]s には %[2]s の基になる GPL バージョンが認めない条件（追加制限の禁止）があり、組み合わせると %[2]s のままでいられない可能性があります。"},
 
 		"ob." + ObAttribution: {"Include its license text and copyright notice in your distribution (e.g. THIRD_PARTY_NOTICES).", "ライセンス全文と著作権表示を配布物に含める（THIRD_PARTY_NOTICES など）。"},
 		"ob." + ObNoticeFile:  {"Pass on the contents of its NOTICE file.", "NOTICE ファイルの内容を引き継いで表示する。"},

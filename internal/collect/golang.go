@@ -89,6 +89,19 @@ func collectGo(dir string, o *Options) (*model.Graph, error) {
 	}
 	listErr := err
 	linked := parseGoList(out)
+	// Modules linked only on other platforms (e.g. golang.org/x/sys/windows
+	// users, platform-specific drivers) ship in cross-compiled releases.
+	for _, plat := range [][2]string{{"linux", "amd64"}, {"darwin", "arm64"}, {"windows", "amd64"}} {
+		if plat[0] == runtime.GOOS && plat[1] == runtime.GOARCH {
+			continue
+		}
+		pout, _ := runCmd(dir, 5*time.Minute, []string{"GOOS=" + plat[0], "GOARCH=" + plat[1], "CGO_ENABLED=1"}, "go", "list", "-e", "-deps", "-f", goListFmt, "./...")
+		for p, m := range parseGoList(pout) {
+			if _, ok := linked[p]; !ok {
+				linked[p] = m
+			}
+		}
+	}
 	// Whole build list (includes test-only and unused modules).
 	allOut, _ := runCmd(dir, 5*time.Minute, env, "go", "list", "-e", "-m", "-f", `{{.Path}}	{{.Version}}	{{.Dir}}	{{.Main}}{{with .Replace}}	{{.Path}}	{{.Version}}	{{.Dir}}{{end}}`, "all")
 	all := parseGoList(allOut)
@@ -115,8 +128,10 @@ func collectGo(dir string, o *Options) (*model.Graph, error) {
 		if m.main {
 			continue
 		}
-		if m.replaceDir != "" {
-			// Local replacement: treat as the user's own code.
+		if m.replaceDir != "" && len(scanLicenseFiles(m.dir)) == 0 {
+			// Local replacement without license files: treat as the user's
+			// own code. (With license files it may be a vendored fork and
+			// is evaluated like any other module.)
 			id := "root:golang:" + p
 			g.AddRoot(id, p+" (local)")
 			idOf[p] = id

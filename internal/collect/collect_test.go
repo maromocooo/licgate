@@ -143,10 +143,24 @@ func TestPythonEnv(t *testing.T) {
 	}
 	check("Req_Lib", "Apache-2.0", model.ScopeRuntime)
 	check("helper", "LGPL-3.0-only", model.ScopeRuntime)
-	check("extra-only", "MIT", model.ScopeDev) // only via an extra: not reachable
+	check("extra-only", "MIT", model.ScopeUnknown) // only via an extra nobody requested
 	check("pytest", "MIT", model.ScopeDev)
 	check("pip", "MIT", model.ScopeDev)
-	check("lic-file", "MIT", model.ScopeDev)
+	check("lic-file", "MIT", model.ScopeUnknown)
+
+	// Requesting the extra on the root requirement makes it runtime, and
+	// requirements files included with -r are followed.
+	write(t, d, "pyproject.toml", "[project]\nname='app'\n")
+	write(t, d, "requirements.txt", "-r requirements/prod.txt\n")
+	write(t, d, "requirements/prod.txt", "req-lib[fast]==1.0  # pinned\n")
+	write(t, d, "requirements-dev.txt", "pytest\n")
+	g, err = collectPython(d, &Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("extra-only", "MIT", model.ScopeRuntime)
+	check("helper", "LGPL-3.0-only", model.ScopeRuntime)
+	check("pytest", "MIT", model.ScopeDev)
 }
 
 func TestCycloneDXIngest(t *testing.T) {
@@ -248,5 +262,58 @@ func TestPURL(t *testing.T) {
 	c := componentFromPURL("pkg:npm/%40types/node@20.0.0", "", "")
 	if c.ID != "pkg:npm/%40types/node@20.0.0" || c.Name != "@types/node" {
 		t.Errorf("component: %+v", c)
+	}
+}
+
+func TestReviewRegressions(t *testing.T) {
+	// H4: partly unknown declaration is kept.
+	c := &model.Component{Name: "a"}
+	declare(c, "x", "MIT AND Acme-Noncommercial")
+	if !hasUnknownLeaf(c.License) {
+		t.Errorf("unknown part dropped: %q", c.License)
+	}
+	// H5: a second, stricter license file.
+	d := t.TempDir()
+	write(t, d, "LICENSE", mitBody)
+	write(t, d, "COPYING", "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n"+strings.Repeat("x ", 3000))
+	c2 := &model.Component{Name: "b", Dir: d, License: "MIT"}
+	finalizeLicense(c2)
+	if c2.FileLicense == "" {
+		t.Errorf("stricter COPYING ignored")
+	}
+	// H8: merging keeps the wider scope.
+	g1, g2 := model.NewGraph(), model.NewGraph()
+	g1.Components["x"] = &model.Component{ID: "x", Scope: model.ScopeDev}
+	g2.Components["x"] = &model.Component{ID: "x", Scope: model.ScopeRuntime}
+	g1.Merge(g2)
+	if g1.Components["x"].Scope != model.ScopeRuntime {
+		t.Errorf("merge scope: %s", g1.Components["x"].Scope)
+	}
+	// H9: SPDX dev relation does not hide a runtime path.
+	doc := `{"spdxVersion":"SPDX-2.3","documentDescribes":["SPDXRef-root"],"packages":[
+ {"SPDXID":"SPDXRef-root","name":"root"},
+ {"SPDXID":"SPDXRef-a","name":"a","versionInfo":"1","licenseConcluded":"MIT","externalRefs":[{"referenceType":"purl","referenceLocator":"pkg:npm/a@1"}]},
+ {"SPDXID":"SPDXRef-x","name":"x","versionInfo":"1","licenseConcluded":"GPL-3.0-only","externalRefs":[{"referenceType":"purl","referenceLocator":"pkg:npm/x@1"}]}],
+ "relationships":[
+ {"spdxElementId":"SPDXRef-x","relationshipType":"DEV_DEPENDENCY_OF","relatedSpdxElement":"SPDXRef-root"},
+ {"spdxElementId":"SPDXRef-root","relationshipType":"DEPENDS_ON","relatedSpdxElement":"SPDXRef-a"},
+ {"spdxElementId":"SPDXRef-a","relationshipType":"DEPENDS_ON","relatedSpdxElement":"SPDXRef-x"}]}`
+	g, err := IngestSBOM([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x := g.Components["pkg:npm/x@1"]; x.Scope != model.ScopeRuntime {
+		t.Errorf("spdx x scope %s", x.Scope)
+	}
+	// H7: devOptional can ship.
+	d2 := t.TempDir()
+	write(t, d2, "package.json", `{"name":"app","dependencies":{"a":"1"}}`)
+	write(t, d2, "package-lock.json", `{"lockfileVersion":3,"packages":{"":{},"node_modules/a":{"version":"1","license":"MIT","optionalDependencies":{"o":"1"}},"node_modules/o":{"version":"1","license":"GPL-3.0","devOptional":true,"optional":false}}}`)
+	ng, err := collectNPM(d2, &Options{Log: func(string, ...any) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := byName(ng, "o"); o.Scope == model.ScopeDev {
+		t.Errorf("devOptional treated as dev")
 	}
 }

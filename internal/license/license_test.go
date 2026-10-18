@@ -1,6 +1,9 @@
 package license
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
@@ -184,5 +187,49 @@ func TestExtractCopyrights(t *testing.T) {
 	got := ExtractCopyrights(mitText)
 	if len(got) != 1 || got[0] != "Copyright (c) 2020 Jane Doe" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestRestrictionsSurvive(t *testing.T) {
+	for in, want := range map[string]string{
+		"Apache 2.0 / Commons Clause": "Apache-2.0 AND " + RefCommons,
+		"MIT (see LICENSE)":           "MIT",
+		"mpl":                         RefMPL,
+	} {
+		if got := Normalize(in); got.Expr != want {
+			t.Errorf("Normalize(%q) = %q, want %q", in, got.Expr, want)
+		}
+	}
+	for _, in := range []string{"MIT (non-commercial use only)", "Apache-2.0 (with Commons Clause)"} {
+		if got := Normalize(in); got.OK() {
+			t.Errorf("Normalize(%q) = %q must not be fully recognised", in, got.Expr)
+		}
+	}
+	cases := map[string]string{
+		mitText + "\nThe Software shall be used for Good, not Evil.":                      "MIT AND JSON",
+		mitText + "\n\n-----\n\n\"Commons Clause\" License Condition v1.0\nThe Software…": "MIT AND " + RefCommons,
+	}
+	for text, want := range cases {
+		if d := DetectText(text); d.ID != want {
+			t.Errorf("got %q want %q", d.ID, want)
+		}
+	}
+	eula := "Copyright 2024 Acme Corp. All rights reserved. This proprietary software includes components under the Apache License, Version 2.0, see below. " + strings.Repeat("Terms. ", 30)
+	if d := DetectText(eula); d.ID == "Apache-2.0" && d.Confidence >= 0.8 {
+		t.Errorf("EULA mentioning Apache detected as Apache")
+	}
+	if d := DetectText("Some project notes. This is not the MIT License, sorry, and no rights are granted to you at all here."); d.Confidence >= 0.8 {
+		t.Errorf("bare 'mit license' mention accepted: %+v", d)
+	}
+	x11 := strings.Replace(mitText, "this permission notice shall be included", "this permission notice (including the next paragraph) shall be included", 1)
+	if d := DetectText(x11); d.ID != "MIT" {
+		t.Errorf("X11-style MIT: %+v", d)
+	}
+}
+
+func TestProprietaryPreambleMentioningApache(t *testing.T) {
+	eula := "Copyright (c) 2023 Acme Corp. All rights reserved.\n\nThis software is proprietary and confidential. You may not copy, modify or redistribute it without a written agreement with Acme. The software includes open source components licensed under the Apache License, Version 2.0; see THIRD_PARTY_NOTICES."
+	if d := DetectText(eula); d.ID != RefProprietary {
+		t.Errorf("got %+v", d)
 	}
 }

@@ -165,6 +165,21 @@ type Result struct {
 	Graph    *model.Graph   `json:"-"`
 }
 
+// Incomplete reports whether part of the project could not be read.
+func (r *Result) Incomplete() bool { return r.Graph != nil && len(r.Graph.Errors) > 0 }
+
+// AllWarnings returns collection errors (first) and warnings.
+func (r *Result) AllWarnings() []string {
+	var out []string
+	if r.Graph != nil {
+		for _, e := range r.Graph.Errors {
+			out = append(out, "ERROR: "+e)
+		}
+		out = append(out, r.Graph.Warnings...)
+	}
+	return append(out, r.Warnings...)
+}
+
 // Worst returns the highest level among findings.
 func (r *Result) Worst() Level {
 	w := LevelSkip
@@ -222,6 +237,12 @@ func Evaluate(g *model.Graph, s Settings) *Result {
 	for _, c := range g.Sorted() {
 		for _, ov := range s.Overrides {
 			if matchPackage(ov.Package, c) {
+				// Work on a copy so re-evaluating with other settings (TUI)
+				// starts from the collected data again.
+				cc := *c
+				c = &cc
+				c.FileLicense = ""
+				c.LicenseNotes = nil // notes about the collected license no longer apply
 				n := license.Normalize(ov.License)
 				c.License = n.Expr
 				if c.License == "" {
@@ -432,12 +453,12 @@ func evaluateComponent(f *Finding, out Outbound, s Settings) {
 		f.Reasons = []string{i18n.T("r.bad_expr", c.License)}
 		return
 	}
-	v := evalExpr(e, out, s, c, f.Linking)
+	v := evalOutbound(e, out, s, c, f.Linking)
 	if c.FileLicense != "" {
 		// Metadata and the bundled license file disagree: judge both, keep
 		// the worse, and make sure a human looks at it.
 		if fe, err := license.Parse(c.FileLicense); err == nil {
-			fv := evalExpr(fe, out, s, c, f.Linking)
+			fv := evalOutbound(fe, out, s, c, f.Linking)
 			if fv.level > v.level {
 				fv.chosen = v.chosen
 				v = fv
@@ -457,26 +478,41 @@ func evaluateComponent(f *Finding, out Outbound, s Settings) {
 	if f.Level == LevelOK && len(f.Obligations) > 0 {
 		f.Level = LevelNotice
 	}
+	// For a BLOCK the obligations are moot until the conflict is resolved.
+	if f.Level == LevelBlock {
+		f.Obligations = nil
+	}
 }
 
-func evalExpr(e license.Expr, out Outbound, s Settings, c *model.Component, link Linking) verdict {
+// evalOutbound judges a dependency expression against every alternative of
+// a dual-licensed outbound license: the project must be distributable under
+// each of them, so the worst result counts — but for each outbound
+// alternative the dependency may pick its own best alternative.
+func evalOutbound(e license.Expr, out Outbound, s Settings, c *model.Component, link Linking) verdict {
+	var worst verdict
+	for i, ol := range out.Leaves {
+		v := evalExpr(e, ol, out.Proprietary && ol == "proprietary", s, c, link)
+		if i == 0 || v.level > worst.level {
+			reasons, obs := worst.reasons, worst.obs
+			worst = v
+			worst.reasons = append(reasons, v.reasons...)
+			worst.obs = append(obs, v.obs...)
+		} else {
+			worst.reasons = append(worst.reasons, v.reasons...)
+			worst.obs = append(worst.obs, v.obs...)
+		}
+	}
+	return worst
+}
+
+func evalExpr(e license.Expr, outLeaf string, outIsProp bool, s Settings, c *model.Component, link Linking) verdict {
 	switch x := e.(type) {
 	case license.Leaf:
-		v := verdict{level: LevelOK, chosen: x.String()}
-		// Dual-licensed outbound: every alternative must work.
-		for _, ol := range out.Leaves {
-			lv := judgeLeaf(x, ol, out.Proprietary && ol == "proprietary", s, c, link)
-			if lv.level > v.level {
-				v.level = lv.level
-			}
-			v.reasons = append(v.reasons, lv.reasons...)
-			v.obs = append(v.obs, lv.obs...)
-		}
-		return v
+		return judgeLeaf(x, outLeaf, outIsProp, s, c, link)
 	case *license.Op:
 		var kids []verdict
 		for _, k := range x.Kids {
-			kids = append(kids, evalExpr(k, out, s, c, link))
+			kids = append(kids, evalExpr(k, outLeaf, outIsProp, s, c, link))
 		}
 		if x.And {
 			v := verdict{level: LevelOK}
@@ -498,8 +534,10 @@ func evalExpr(e license.Expr, out Outbound, s Settings, c *model.Component, link
 			}
 		}
 		v := kids[best]
-		if len(kids) > 1 {
+		if len(kids) > 1 && v.level < LevelBlock {
 			v.reasons = append([]string{i18n.T("r.or_choice", v.chosen)}, v.reasons...)
+		} else if len(kids) > 1 {
+			v.reasons = append([]string{i18n.T("r.or_none")}, v.reasons...)
 		}
 		return v
 	}
@@ -559,13 +597,13 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 	v := verdict{level: LevelOK, chosen: l.String()}
 	id := l.ID
 	for _, d := range s.Deny {
-		if strings.EqualFold(d, id) {
+		if listMatches(d, id) {
 			v.add(LevelBlock, i18n.T("r.denied", id))
 			return v
 		}
 	}
 	for _, a := range s.Allow {
-		if strings.EqualFold(a, id) {
+		if listMatches(a, id) {
 			v.add(LevelOK, i18n.T("r.allowed", id))
 			return v
 		}
@@ -605,6 +643,15 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 		ok = (ov2 && gpl2) || (ov3 && gpl3)
 		onlyV3 = ok && ov2 && ov3 && !gpl2
 		return
+	}
+	// incompatible returns the level for a GPL incompatibility: a
+	// placeholder ("other permissive license") only gets REVIEW because we
+	// don't actually know its terms.
+	incompatible := func() Level {
+		if di.Ambiguous {
+			return LevelReview
+		}
+		return LevelBlock
 	}
 
 	// Things that don't depend on the outbound license much.
@@ -656,6 +703,12 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 			default:
 				v.add(LevelReview, i18n.T("r.saas_agpl_review", name), ObAGPLNetwork)
 			}
+		case cat == license.CatStrongCopyleft && !linkExc && strings.HasPrefix(di.ID, "EUPL"):
+			// EUPL's "Communication" includes providing online access.
+			v.add(LevelReview, i18n.T("r.saas_eupl", name))
+		case cat == license.CatStrongCopyleft && !linkExc && c.Ecosystem == "npm":
+			// JS that runs in the browser is shipped to every visitor.
+			v.add(LevelReview, i18n.T("r.saas_frontend", name))
 		case cat == license.CatStrongCopyleft && !linkExc:
 			v.add(LevelOK, i18n.T("r.saas_gpl", name))
 		default:
@@ -673,8 +726,12 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 				v.add(LevelOK, i18n.T("r.link_exception", l.Exception))
 				return v
 			}
+			if di.FontOnly {
+				v.add(LevelOK, i18n.T("r.font_aggregate", name))
+				return v
+			}
 			if ok, onlyV3 := gplCompatible(); !ok {
-				v.add(LevelBlock, i18n.T("r.gpl_incompatible", name, oi.ID))
+				v.add(incompatible(), i18n.T("r.gpl_incompatible", name, oi.ID))
 			} else if onlyV3 {
 				v.add(LevelNotice, i18n.T("r.gpl_becomes_v3", name))
 			}
@@ -686,6 +743,9 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 				v.add(LevelReview, i18n.T("r.outbound_rules_missing", outID))
 			}
 		default: // proprietary, permissive, weak
+			if r := lgplOutboundConflict(oi.ID, di, gpl2, gpl3); r != "" && (cat == license.CatPermissive || cat == license.CatWeakCopyleft) {
+				v.add(LevelReview, i18n.T(r, name, oi.ID))
+			}
 			switch {
 			case linkExc:
 				v.add(LevelOK, i18n.T("r.link_exception", l.Exception))
@@ -713,7 +773,11 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 			return v
 		}
 		if linkExc {
-			v.add(LevelNotice, i18n.T("r.link_exception", l.Exception))
+			v.add(LevelNotice, i18n.T("r.link_exception", l.Exception), ObFileSource)
+			return v
+		}
+		if di.FontOnly {
+			v.add(LevelNotice, i18n.T("r.font_aggregate", name))
 			return v
 		}
 		ok, onlyV3 := gplCompatible()
@@ -722,7 +786,7 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 			if l.ID == "EPL-2.0" {
 				v.add(LevelBlock, i18n.T("r.epl2_secondary", oi.ID))
 			} else {
-				v.add(LevelBlock, i18n.T("r.gpl_incompatible", name, oi.ID))
+				v.add(incompatible(), i18n.T("r.gpl_incompatible", name, oi.ID))
 			}
 			return v
 		case onlyV3:
@@ -750,11 +814,14 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 	}
 
 	// proprietary / permissive / weak outbound, binary distribution
+	if r := lgplOutboundConflict(oi.ID, di, gpl2, gpl3); r != "" && (cat == license.CatPermissive || cat == license.CatWeakCopyleft) {
+		v.add(LevelReview, i18n.T(r, name, oi.ID))
+	}
 	switch {
 	case cat == license.CatPublicDomain || cat == license.CatPermissive:
 		// attribution handled above
 	case linkExc:
-		v.add(LevelNotice, i18n.T("r.link_exception", l.Exception))
+		v.add(LevelNotice, i18n.T("r.link_exception", l.Exception), ObFileSource)
 	case cat == license.CatWeakCopyleft:
 		if strings.HasPrefix(name, "LGPL") || name == license.RefLGPL {
 			if link == LinkStatic {
@@ -771,6 +838,50 @@ func judgeLeaf(l license.Leaf, outID string, outIsProp bool, s Settings, c *mode
 		v.add(LevelBlock, i18n.T("r.bin_agpl", name, outLabel(outID, oc)))
 	}
 	return v
+}
+
+// lgplOutboundConflict: an LGPL project has the same "no further
+// restrictions" rule as the GPL version it derives from, so e.g. Apache-2.0
+// code cannot simply be folded into an LGPL-2.1-only library. Returns a
+// message key or "".
+func lgplOutboundConflict(outID string, di license.Info, gpl2, gpl3 bool) string {
+	var v2, v3 bool
+	switch outID {
+	case "LGPL-2.0-only", "LGPL-2.1-only":
+		v2 = true
+	case "LGPL-2.0-or-later", "LGPL-2.1-or-later":
+		v2, v3 = true, true
+	case "LGPL-3.0-only", "LGPL-3.0-or-later":
+		v3 = true
+	default:
+		return ""
+	}
+	if di.Category == license.CatPublicDomain || (v2 && gpl2) || (v3 && gpl3) {
+		return ""
+	}
+	return "r.lgpl_out_incompatible"
+}
+
+// listMatches compares an allow/deny entry with a license id. Entries are
+// normalised ("GPL-3.0" = "GPL-3.0-only"), and an entry without -only /
+// -or-later matches the whole family ("GPL-3.0" also denies
+// GPL-3.0-or-later).
+func listMatches(entry, id string) bool {
+	if strings.EqualFold(entry, id) {
+		return true
+	}
+	n := license.Normalize(entry)
+	if n.Expr != "" && strings.EqualFold(n.Expr, id) {
+		return true
+	}
+	base := func(x string) string {
+		x = strings.TrimSuffix(strings.TrimSuffix(x, "-only"), "-or-later")
+		return strings.ToLower(strings.TrimSuffix(x, "+"))
+	}
+	if !strings.HasSuffix(entry, "-only") && !strings.HasSuffix(entry, "-or-later") {
+		return base(entry) == base(id)
+	}
+	return false
 }
 
 func outLabel(id string, oc outClass) string {

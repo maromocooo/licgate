@@ -88,7 +88,7 @@ func Run(o Options) (*model.Graph, error) {
 					o.Log("%s: %s", c.name, rel)
 					sg, err := c.run(d, &o)
 					if err != nil {
-						g.Warnings = append(g.Warnings, fmt.Sprintf("%s (%s): %v", c.name, rel, err))
+						g.Errors = append(g.Errors, fmt.Sprintf("%s (%s): %v", c.name, rel, err))
 						continue
 					}
 					g.Merge(sg)
@@ -99,7 +99,9 @@ func Run(o Options) (*model.Graph, error) {
 			if path, err := exec.LookPath("syft"); err == nil {
 				o.Log("syft: %s", path)
 				sg, err := runSyft(path, abs)
-				if err != nil {
+				if err != nil && o.Generator == "syft" {
+					g.Errors = append(g.Errors, "syft: "+err.Error())
+				} else if err != nil {
 					g.Warnings = append(g.Warnings, "syft: "+err.Error())
 				} else {
 					mergeSyft(g, sg, o.Generator == "syft")
@@ -250,7 +252,10 @@ func declare(c *model.Component, source string, raws ...string) {
 			}
 			continue
 		}
-		if n.OK() {
+		// Keep partly or wholly unrecognised declarations: an unknown part
+		// ("MIT AND Acme-Noncommercial") may be exactly the restriction
+		// that matters. Unknown leaves become REVIEW in the policy.
+		if n.Expr != "" {
 			exprs = append(exprs, n.Expr)
 		}
 	}
@@ -361,6 +366,11 @@ func licenseFromFiles(files []model.LicenseFile) (expr string, ambiguousVersion 
 	if allDualNamed {
 		op = " OR "
 	}
+	for i, id := range ids {
+		if strings.Contains(id, " ") {
+			ids[i] = "(" + id + ")"
+		}
+	}
 	return strings.Join(ids, op), ambiguousVersion
 }
 
@@ -379,6 +389,11 @@ func finalizeLicense(c *model.Component) {
 		}
 	}
 	fileExpr, amb := licenseFromFiles(c.LicenseFiles)
+	if c.License == "" && len(c.LicenseFiles) == 0 && c.Dir != "" {
+		if hint := readmeLicense(c.Dir); hint != "" {
+			c.LicenseNotes = appendUniq(c.LicenseNotes, i18n.T("c.readme_says", hint))
+		}
+	}
 	if fileExpr == "" {
 		for _, f := range c.LicenseFiles {
 			if !f.IsNotice && f.DetectedID != "" && f.Confidence < 0.8 {
@@ -408,14 +423,80 @@ func finalizeLicense(c *model.Component) {
 		}
 		return
 	}
-	// Metadata says X but the license file clearly says something else.
-	if fileExpr != "" && !strings.Contains(c.License, " ") && !strings.Contains(fileExpr, " ") {
-		mi, _ := license.Lookup(c.License)
-		fi, _ := license.Lookup(fileExpr)
-		if c.License != fileExpr && !sameFamily(c.License, fileExpr) && mi.Category != fi.Category {
-			c.FileLicense = fileExpr
+	// Metadata says X but a bundled license file adds something stricter
+	// (another file is GPL, a Commons Clause is appended, …).
+	if fileExpr != "" && fileStricter(fileExpr, c.License) {
+		c.FileLicense = fileExpr
+	}
+	if fileExpr != "" && hasUnknownLeaf(c.License) && !hasUnknownLeaf(fileExpr) {
+		c.LicenseNotes = appendUniq(c.LicenseNotes, i18n.T("c.file_suggests", fileExpr))
+	}
+}
+
+func leafRank(id string) int {
+	info, ok := license.Lookup(id)
+	if !ok {
+		return 6
+	}
+	switch info.Category {
+	case license.CatPublicDomain:
+		return 0
+	case license.CatPermissive:
+		return 1
+	case license.CatWeakCopyleft:
+		return 2
+	case license.CatStrongCopyleft:
+		return 3
+	case license.CatNetworkCopyleft:
+		return 4
+	}
+	return 5
+}
+
+func leafFamilies(expr string) []string {
+	e, err := license.Parse(expr)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range license.Leaves(e) {
+		out = append(out, l.ID)
+	}
+	return out
+}
+
+func hasUnknownLeaf(expr string) bool {
+	for _, id := range leafFamilies(expr) {
+		if !license.IsKnown(id) {
+			return true
 		}
 	}
+	return false
+}
+
+// fileStricter: does the file expression contain a license that the
+// metadata does not mention and that is stricter than everything the
+// metadata mentions?
+func fileStricter(fileExpr, meta string) bool {
+	metaIDs := leafFamilies(meta)
+	maxMeta := -1
+	for _, id := range metaIDs {
+		if r := leafRank(id); r > maxMeta {
+			maxMeta = r
+		}
+	}
+	for _, id := range leafFamilies(fileExpr) {
+		known := false
+		for _, m := range metaIDs {
+			if sameFamily(id, m) {
+				known = true
+			}
+		}
+		if !known && leafRank(id) > maxMeta {
+			return true
+		}
+	}
+	return false
 }
 
 func sameFamily(a, b string) bool {
@@ -437,4 +518,30 @@ func licenseFileFromText(p, text string) model.LicenseFile {
 		lf.DetectedID, lf.Confidence = d.ID, d.Confidence
 	}
 	return lf
+}
+
+var readmeLicenseRe = regexp.MustCompile(`(?is)#+\s*licen[cs]e\s*\n+(.{1,200})`)
+
+// readmeLicense returns what a README's "License" section says, if it is
+// a short recognisable declaration. Used only as a hint: a README is not a
+// license grant, so the package still needs a human check.
+func readmeLicense(dir string) string {
+	for _, n := range []string{"README.md", "README", "README.markdown", "readme.md", "README.rst"} {
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			continue
+		}
+		m := readmeLicenseRe.FindSubmatch(b)
+		if m == nil {
+			continue
+		}
+		first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(string(m[1])), "\n", 2)[0])
+		if norm := license.Normalize(first); norm.OK() {
+			return norm.Expr
+		}
+		if d := license.DetectText(string(m[1])); d.ID != "" {
+			return d.ID
+		}
+	}
+	return ""
 }

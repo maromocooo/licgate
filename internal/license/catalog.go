@@ -86,6 +86,8 @@ const (
 	RefWeakCopyleft = "LicenseRef-licgate-other-weak-copyleft"
 	RefNonFree      = "LicenseRef-licgate-source-available"
 	RefCommons      = "LicenseRef-Commons-Clause"
+	RefMPL          = "LicenseRef-licgate-MPL-unversioned"
+	RefArtistic     = "LicenseRef-licgate-Artistic-unversioned"
 )
 
 func perm(id, name string, gpl2, gpl3 bool) Info {
@@ -103,11 +105,19 @@ var catalogList = []Info{
 	pd("0BSD", "BSD Zero Clause License"),
 	pd("MIT-0", "MIT No Attribution"),
 	pd("WTFPL", "Do What The F*ck You Want To Public License"),
-	pd("BlueOak-1.0.0", "Blue Oak Model License 1.0.0"),
 	pd(RefPublicDomain, "Public domain (declared)"),
 
 	// permissive
 	perm("MIT", "MIT License", true, true),
+	perm("BlueOak-1.0.0", "Blue Oak Model License 1.0.0", true, true),
+	perm("MIT-Modern-Variant", "MIT License Modern Variant", true, true),
+	perm("MIT-open-group", "MIT Open Group variant", true, true),
+	perm("MIT-feh", "feh License", true, true),
+	perm("BSD-2-Clause-Patent", "BSD-2-Clause Plus Patent License", true, true),
+	perm("BSD-2-Clause-Views", "BSD 2-Clause with views sentence", true, true),
+	perm("BSD-3-Clause-LBNL", "Lawrence Berkeley National Labs BSD variant license", true, true),
+	perm("BSD-3-Clause-Modification", "BSD 3-Clause Modification", true, true),
+	perm("BSD-Source-Code", "BSD Source Code Attribution", true, true),
 	perm("ISC", "ISC License", true, true),
 	perm("BSD-1-Clause", "BSD 1-Clause License", true, true),
 	perm("BSD-2-Clause", "BSD 2-Clause \"Simplified\" License", true, true),
@@ -130,7 +140,7 @@ var catalogList = []Info{
 	perm("Unicode-3.0", "Unicode License v3", true, true),
 	perm("Artistic-2.0", "Artistic License 2.0", true, true),
 	perm("CC-BY-3.0", "Creative Commons Attribution 3.0", false, false),
-	perm("CC-BY-4.0", "Creative Commons Attribution 4.0", false, true),
+	perm("CC-BY-4.0", "Creative Commons Attribution 4.0", true, true),
 	{ID: "OFL-1.1", Name: "SIL Open Font License 1.1", Category: CatPermissive, Attribution: true, FontOnly: true},
 	perm("OpenSSL", "OpenSSL License (advertising clause)", false, false),
 	perm("AFL-3.0", "Academic Free License v3.0", false, false),
@@ -184,6 +194,8 @@ var catalogList = []Info{
 	{ID: "MPL-2.0-no-copyleft-exception", Name: "MPL 2.0 (Incompatible With Secondary Licenses)", Category: CatWeakCopyleft, Attribution: true},
 	{ID: "MPL-1.1", Name: "Mozilla Public License 1.1", Category: CatWeakCopyleft, Attribution: true},
 	{ID: "MPL-1.0", Name: "Mozilla Public License 1.0", Category: CatWeakCopyleft, Attribution: true},
+	{ID: RefMPL, Name: "MPL (version not specified)", Category: CatWeakCopyleft, Attribution: true, Ambiguous: true},
+	{ID: RefArtistic, Name: "Artistic License (version not specified)", Category: CatWeakCopyleft, Attribution: true, Ambiguous: true},
 	{ID: "EPL-1.0", Name: "Eclipse Public License 1.0", Category: CatWeakCopyleft, Attribution: true},
 	{ID: "EPL-2.0", Name: "Eclipse Public License 2.0", Category: CatWeakCopyleft, Attribution: true},
 	{ID: "CDDL-1.0", Name: "Common Development and Distribution License 1.0", Category: CatWeakCopyleft, Attribution: true},
@@ -250,17 +262,17 @@ var exceptionList = []Exception{
 	{ID: "GCC-exception-2.0", Linking: true},
 	{ID: "GCC-exception-3.1", Linking: true},
 	{ID: "LLVM-exception", Linking: true, GPL2: true},
-	{ID: "Autoconf-exception-2.0", Linking: true},
-	{ID: "Autoconf-exception-3.0", Linking: true},
-	{ID: "Bison-exception-2.2", Linking: true},
-	{ID: "Libtool-exception", Linking: true},
+	{ID: "Autoconf-exception-2.0", Linking: false}, // covers generated output / embedded fonts only
+	{ID: "Autoconf-exception-3.0", Linking: false}, // covers generated output / embedded fonts only
+	{ID: "Bison-exception-2.2", Linking: false},    // covers generated output / embedded fonts only
+	{ID: "Libtool-exception", Linking: false},      // covers generated output / embedded fonts only
 	{ID: "Linux-syscall-note", Linking: true},
 	{ID: "OpenJDK-assembly-exception-1.0", Linking: true},
-	{ID: "Font-exception-2.0", Linking: true},
+	{ID: "Font-exception-2.0", Linking: false}, // covers generated output / embedded fonts only
 	{ID: "WxWindows-exception-3.1", Linking: true},
 	{ID: "eCos-exception-2.0", Linking: true},
 	{ID: "Qt-LGPL-exception-1.1", Linking: true},
-	{ID: "Qt-GPL-exception-1.0", Linking: true},
+	{ID: "Qt-GPL-exception-1.0", Linking: false}, // covers generated output / embedded fonts only
 	{ID: "openvpn-openssl-exception", Linking: false},
 	{ID: "Universal-FOSS-exception-1.0", Linking: false},
 	{ID: "FLTK-exception", Linking: true},
@@ -306,10 +318,9 @@ func Lookup(id string) (Info, bool) {
 		return Info{ID: id, Name: id, Category: CatSourceAvailable, Attribution: true}, true
 	case strings.HasPrefix(lc, "polyform-"):
 		return Info{ID: id, Name: id, Category: CatSourceAvailable, Attribution: true}, true
-	case strings.HasPrefix(lc, "bsd-2-clause") || strings.HasPrefix(lc, "bsd-3-clause"):
-		return Info{ID: id, Name: id, Category: CatPermissive, GPL2: true, GPL3: true, Attribution: true}, true
-	case strings.HasPrefix(lc, "mit-"):
-		return Info{ID: id, Name: id, Category: CatPermissive, GPL2: true, GPL3: true, Attribution: true}, true
+		// Note: no catch-all for "BSD-3-Clause-*" / "MIT-*": some variants add
+		// field-of-use restrictions (e.g. BSD-3-Clause-No-Military-License), so
+		// unlisted variants stay unknown and go to REVIEW.
 	}
 	return Info{}, false
 }

@@ -30,19 +30,20 @@ type Meta struct {
 
 func init() {
 	i18n.Add(map[string][2]string{
-		"rep.title":          {"License check", "ライセンスチェック"},
-		"rep.intended":       {"Intended license", "公開予定のライセンス"},
-		"rep.distribution":   {"Distribution", "配布形態"},
-		"rep.linking":        {"Linking", "リンク方式"},
-		"rep.include_dev":    {"Dev dependencies", "開発用依存"},
-		"rep.included":       {"evaluated", "評価する"},
-		"rep.excluded":       {"not shipped (skipped)", "配布物に含まれない（スキップ）"},
-		"rep.sources":        {"Data sources", "データソース"},
-		"rep.generated":      {"Generated", "生成日時"},
-		"rep.summary":        {"Summary", "サマリー"},
-		"rep.verdict_block":  {"Known incompatibilities with %s were found. Resolve the BLOCK items before publishing.", "%s との既知の非互換が見つかりました。公開前に BLOCK の項目を解消してください。"},
-		"rep.verdict_review": {"No known incompatibility with %s, but some dependencies need a manual check.", "%s との既知の非互換はありませんが、手動確認が必要な依存があります。"},
-		"rep.verdict_ok":     {"No known incompatibility with %s was found.", "%s との既知の非互換は見つかりませんでした。"},
+		"rep.title":              {"License check", "ライセンスチェック"},
+		"rep.intended":           {"Intended license", "公開予定のライセンス"},
+		"rep.distribution":       {"Distribution", "配布形態"},
+		"rep.linking":            {"Linking", "リンク方式"},
+		"rep.include_dev":        {"Dev dependencies", "開発用依存"},
+		"rep.included":           {"evaluated", "評価する"},
+		"rep.excluded":           {"not shipped (skipped)", "配布物に含まれない（スキップ）"},
+		"rep.sources":            {"Data sources", "データソース"},
+		"rep.generated":          {"Generated", "生成日時"},
+		"rep.summary":            {"Summary", "サマリー"},
+		"rep.verdict_block":      {"Known incompatibilities with %s were found. Resolve the BLOCK items before publishing.", "%s との既知の非互換が見つかりました。公開前に BLOCK の項目を解消してください。"},
+		"rep.verdict_review":     {"No known incompatibility with %s, but some dependencies need a manual check.", "%s との既知の非互換はありませんが、手動確認が必要な依存があります。"},
+		"rep.verdict_incomplete": {"Part of the project could not be read (see ERROR above), so this result is incomplete — fix the errors and run again.", "プロジェクトの一部を読み取れなかったため（上記の ERROR を参照）、結果は不完全です。エラーを解消して再実行してください。"},
+		"rep.verdict_ok":         {"No known incompatibility with %s was found.", "%s との既知の非互換は見つかりませんでした。"},
 		"rep.disclaimer": {
 			"licgate reports known license incompatibilities based on declared metadata and license files. It is not legal advice; when in doubt, ask a lawyer.",
 			"licgate は宣言されたメタデータとライセンスファイルに基づいて既知の非互換を報告するもので、法的助言ではありません。判断に迷う場合は専門家に相談してください。"},
@@ -92,6 +93,8 @@ func Verdict(r *policy.Result) string {
 		out = i18n.T("w.proprietary")
 	}
 	switch w := r.Worst(); {
+	case r.Incomplete():
+		return i18n.T("rep.verdict_incomplete")
 	case w >= policy.LevelBlock:
 		return i18n.T("rep.verdict_block", out)
 	case w >= policy.LevelReview:
@@ -148,7 +151,7 @@ func WriteJSON(w io.Writer, r *policy.Result, m Meta) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(out{
 		Meta: m, Verdict: Verdict(r), Settings: r.Settings, Outbound: r.Outbound, Counts: r.Counts,
-		Sources: r.Graph.Sources, Warnings: append(append([]string{}, r.Graph.Warnings...), r.Warnings...), Findings: r.Findings,
+		Sources: r.Graph.Sources, Warnings: r.AllWarnings(), Findings: r.Findings,
 	})
 }
 
@@ -189,7 +192,7 @@ func WriteMarkdown(w io.Writer, r *policy.Result, m Meta) error {
 	p("## %s\n\n", i18n.T("rep.summary"))
 	p("| BLOCK | REVIEW | NOTICE | OK | SKIP |\n|---:|---:|---:|---:|---:|\n")
 	p("| %d | %d | %d | %d | %d |\n\n", r.Counts["BLOCK"], r.Counts["REVIEW"], r.Counts["NOTICE"], r.Counts["OK"], r.Counts["SKIP"])
-	warns := append(append([]string{}, r.Graph.Warnings...), r.Warnings...)
+	warns := r.AllWarnings()
 	if len(warns) > 0 {
 		p("### %s\n\n", i18n.T("rep.warnings"))
 		for _, wn := range warns {

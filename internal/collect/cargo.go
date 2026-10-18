@@ -41,6 +41,7 @@ type cargoMeta struct {
 		Source       string `json:"source"`
 		Repository   string `json:"repository"`
 		Homepage     string `json:"homepage"`
+		Links        string `json:"links"`
 		Targets      []struct {
 			Kind []string `json:"kind"`
 		} `json:"targets"`
@@ -61,9 +62,9 @@ type cargoMeta struct {
 
 func collectCargo(dir string, o *Options) (*model.Graph, error) {
 	if _, err := exec.LookPath("cargo"); err == nil {
-		out, err := runCmd(dir, 5*time.Minute, nil, "cargo", "metadata", "--format-version", "1", "--offline")
+		out, err := runCmd(dir, 5*time.Minute, nil, "cargo", "metadata", "--format-version", "1", "--all-features", "--offline")
 		if err != nil {
-			out, err = runCmd(dir, 5*time.Minute, nil, "cargo", "metadata", "--format-version", "1")
+			out, err = runCmd(dir, 5*time.Minute, nil, "cargo", "metadata", "--format-version", "1", "--all-features")
 		}
 		if err == nil {
 			var m cargoMeta
@@ -86,6 +87,8 @@ func cargoFromMetadata(m *cargoMeta) (*model.Graph, error) {
 	}
 	idOf := map[string]string{}
 	procMacro := map[string]bool{}
+	hasLinks := map[string]bool{} // component/root ID -> crate has `links` (a -sys crate)
+	nameOf := map[string]string{}
 	for _, p := range m.Packages {
 		if members[p.ID] || p.Source == "" && members[p.ID] {
 			rid := "root:cargo:" + p.ID
@@ -93,9 +96,10 @@ func cargoFromMetadata(m *cargoMeta) (*model.Graph, error) {
 			idOf[p.ID] = rid
 			continue
 		}
-		if p.Source == "" {
-			// Local path dependency outside the workspace: still the user's
-			// code in most cases.
+		if p.Source == "" && p.License == "" && p.LicenseFile == "" && len(scanLicenseFiles(filepath.Dir(p.ManifestPath))) == 0 {
+			// Local path dependency without any license info: treat as the
+			// user's own code. (With license info it is evaluated below —
+			// it may be a vendored third-party fork.)
 			rid := "root:cargo:" + p.ID
 			g.AddRoot(rid, p.Name+" (path)")
 			idOf[p.ID] = rid
@@ -123,6 +127,12 @@ func cargoFromMetadata(m *cargoMeta) (*model.Graph, error) {
 		g.Components[c.ID] = c
 		idOf[p.ID] = c.ID
 	}
+	for _, p := range m.Packages {
+		if id := idOf[p.ID]; id != "" {
+			hasLinks[id] = p.Links != ""
+			nameOf[id] = p.Name
+		}
+	}
 	// Edges; remember which are "normal" (linked) edges.
 	normal := map[string][]string{}
 	for _, n := range m.Resolve.Nodes {
@@ -134,7 +144,10 @@ func cargoFromMetadata(m *cargoMeta) (*model.Graph, error) {
 			}
 			g.AddEdge(from, to)
 			for _, k := range d.DepKinds {
-				if k.Kind == nil { // normal dependency
+				// Normal dependencies are linked. A -sys crate's build
+				// dependency on a "*-src" crate compiles bundled C code
+				// (openssl-src, lua-src…) into the binary as well.
+				if k.Kind == nil || (*k.Kind == "build" && hasLinks[from] && strings.HasSuffix(nameOf[to], "-src")) {
 					normal[from] = append(normal[from], to)
 					break
 				}

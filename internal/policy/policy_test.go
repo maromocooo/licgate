@@ -73,7 +73,9 @@ func TestMatrix(t *testing.T) {
 		{"MIT", DistLibrary, LinkAuto, "Apache-2.0", "npm", LevelOK},
 		{"GPL-2.0-only", DistLibrary, LinkAuto, "Apache-2.0", "pypi", LevelBlock},
 		// SaaS
-		{"proprietary", DistSaaS, LinkAuto, "GPL-3.0-only", "npm", LevelOK},
+		{"proprietary", DistSaaS, LinkAuto, "GPL-3.0-only", "golang", LevelOK},
+		{"proprietary", DistSaaS, LinkAuto, "GPL-3.0-only", "npm", LevelReview}, // may be served to browsers
+		{"proprietary", DistSaaS, LinkAuto, "EUPL-1.2", "golang", LevelReview},
 		{"proprietary", DistSaaS, LinkAuto, "AGPL-3.0-only", "npm", LevelBlock},
 		{"MIT", DistSaaS, LinkAuto, "AGPL-3.0-only", "npm", LevelReview},
 		{"AGPL-3.0-or-later", DistSaaS, LinkAuto, "AGPL-3.0-only", "npm", LevelNotice},
@@ -97,6 +99,15 @@ func TestMatrix(t *testing.T) {
 		// dual-licensed outbound: every alternative must work
 		{"MIT OR Apache-2.0", DistBinary, LinkAuto, "GPL-3.0-only", "cargo", LevelBlock},
 		{"MIT OR GPL-2.0-only", DistBinary, LinkAuto, "Apache-2.0", "cargo", LevelBlock},
+		// review regressions
+		{"MIT OR GPL-2.0-only", DistBinary, LinkAuto, "Apache-2.0 OR GPL-2.0-only", "cargo", LevelNotice},
+		{"LGPL-2.1-only", DistBinary, LinkAuto, "Apache-2.0", "pypi", LevelReview},
+		{"LGPL-3.0-or-later", DistBinary, LinkAuto, "Apache-2.0", "pypi", LevelNotice},
+		{"GPL-3.0-only", DistBinary, LinkAuto, "OFL-1.1", "npm", LevelNotice},
+		{"GPL-3.0-only", DistBinary, LinkAuto, "LicenseRef-licgate-other-permissive", "npm", LevelReview},
+		{"proprietary", DistBinary, LinkAuto, "GPL-2.0-only WITH Font-exception-2.0", "npm", LevelBlock},
+		{"MIT", DistBinary, LinkAuto, "BSD-3-Clause-No-Military-License", "golang", LevelReview},
+		{"MIT", DistBinary, LinkAuto, "MIT AND LicenseRef-licgate-field-of-use-restriction", "golang", LevelReview},
 		// weak outbound behaves like permissive
 		{"MPL-2.0", DistBinary, LinkAuto, "GPL-3.0-only", "npm", LevelBlock},
 		{"MPL-2.0", DistBinary, LinkAuto, "MIT", "npm", LevelNotice},
@@ -169,5 +180,26 @@ func TestParseOutbound(t *testing.T) {
 	}
 	if o := ParseOutbound("WeirdLicense-9"); len(o.Unknown) == 0 {
 		t.Errorf("expected unknown: %+v", o)
+	}
+}
+
+func TestDenyFamily(t *testing.T) {
+	g := graphWith(comp("x", "GPL-3.0-or-later", "golang"))
+	r := Evaluate(g, Settings{License: "GPL-3.0-or-later", Distribution: DistBinary, Deny: []string{"GPL-3.0"}})
+	if l := levelOf(t, r, "x"); l != LevelBlock {
+		t.Errorf("deny GPL-3.0 should match GPL-3.0-or-later, got %s", l)
+	}
+}
+
+func TestOverrideDoesNotMutate(t *testing.T) {
+	c := comp("x", "", "npm")
+	c.FileLicense = "GPL-3.0-only"
+	g := graphWith(c)
+	r := Evaluate(g, Settings{License: "MIT", Distribution: DistBinary, Overrides: []Override{{Package: "x", License: "MIT"}}})
+	if l := levelOf(t, r, "x"); l != LevelNotice {
+		t.Errorf("override should win, got %s", l)
+	}
+	if c.License != "" || c.FileLicense == "" {
+		t.Errorf("graph was mutated: %+v", c)
 	}
 }

@@ -56,10 +56,10 @@ func WriteText(w io.Writer, r *policy.Result, m Meta, all bool) {
 		p("%s %-5d ", lipgloss.NewStyle().Foreground(LevelColor(lvl)).Bold(true).Render(lvl.String()), r.Counts[lvl.String()])
 	}
 	p("\n\n")
-	for _, wn := range append(append([]string{}, r.Graph.Warnings...), r.Warnings...) {
+	for _, wn := range r.AllWarnings() {
 		p("%s %s\n", lipgloss.NewStyle().Foreground(ColorReview).Render("!"), wn)
 	}
-	if len(r.Graph.Warnings)+len(r.Warnings) > 0 {
+	if len(r.AllWarnings()) > 0 {
 		p("\n")
 	}
 	hidden := 0

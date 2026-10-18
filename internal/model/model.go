@@ -66,6 +66,28 @@ func (c *Component) Key() string {
 	return c.Name + "@" + c.Version
 }
 
+// scopeRank orders scopes by how much they matter: anything that may ship
+// beats dev-only.
+func scopeRank(s Scope) int {
+	switch s {
+	case ScopeRuntime:
+		return 3
+	case ScopeUnknown, "":
+		return 2
+	case ScopeOptional:
+		return 1
+	}
+	return 0
+}
+
+// WiderScope returns whichever of a, b is more likely to ship.
+func WiderScope(a, b Scope) Scope {
+	if scopeRank(b) > scopeRank(a) {
+		return b
+	}
+	return a
+}
+
 // Graph is the set of components plus dependency edges.
 type Graph struct {
 	// Roots are the IDs of the project's own packages (not evaluated).
@@ -77,6 +99,9 @@ type Graph struct {
 	// Sources lists what produced the data (collector names, SBOM files).
 	Sources  []string `json:"sources"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Errors are failures to read part of the project (a collector that
+	// could not run). Results are incomplete when this is non-empty.
+	Errors []string `json:"errors,omitempty"`
 }
 
 // NewGraph returns an empty graph.
@@ -187,9 +212,7 @@ func (g *Graph) Merge(other *Graph) {
 			if len(ex.Copyrights) == 0 {
 				ex.Copyrights = c.Copyrights
 			}
-			if ex.Scope == ScopeUnknown && c.Scope != ScopeUnknown {
-				ex.Scope = c.Scope
-			}
+			ex.Scope = WiderScope(ex.Scope, c.Scope)
 			ex.Direct = ex.Direct || c.Direct
 			if ex.Dir == "" {
 				ex.Dir = c.Dir
@@ -205,6 +228,7 @@ func (g *Graph) Merge(other *Graph) {
 	}
 	g.Sources = append(g.Sources, other.Sources...)
 	g.Warnings = append(g.Warnings, other.Warnings...)
+	g.Errors = append(g.Errors, other.Errors...)
 }
 
 // ComputeScopes marks components reachable from roots through runtime

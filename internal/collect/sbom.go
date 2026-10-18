@@ -197,6 +197,9 @@ func ingestCycloneDX(b []byte) (*model.Graph, error) {
 			c := componentFromPURL(cc.PURL, name, cc.Version)
 			if ex, ok := g.Components[c.ID]; ok {
 				refToID[cc.BomRef] = ex.ID
+				if len(cc.Components) > 0 {
+					walk(cc.Components)
+				}
 				continue
 			}
 			switch cc.Scope {
@@ -395,27 +398,42 @@ func ingestSPDX(b []byte) (*model.Graph, error) {
 		idOf[p.SPDXID] = c.ID
 	}
 	incoming := map[string]bool{}
-	edge := func(from, to string, scope model.Scope) {
+	// Scope is decided by reachability, not by the first relationship
+	// seen: a package that is a dev dependency of one thing but a normal
+	// dependency of a runtime package ships.
+	type kind int
+	const (
+		kNormal kind = iota
+		kDev
+		kOptional
+	)
+	kinds := map[[2]string]kind{}
+	hasScopeInfo := false
+	edge := func(from, to string, k kind) {
 		f, t := idOf[from], idOf[to]
 		if f == "" || t == "" {
 			return
 		}
 		g.AddEdge(f, t)
 		incoming[t] = true
-		if c, ok := g.Components[t]; ok && scope != "" {
-			if c.Scope == model.ScopeUnknown || (c.Scope == model.ScopeDev && scope == model.ScopeRuntime) {
-				c.Scope = scope
-			}
+		key := [2]string{f, t}
+		if old, ok := kinds[key]; !ok || k < old {
+			kinds[key] = k
 		}
 	}
 	for _, r := range doc.Relationships {
 		switch r.Type {
 		case "DEPENDS_ON", "CONTAINS", "STATIC_LINK", "DYNAMIC_LINK":
-			edge(r.Element, r.Related, "")
+			edge(r.Element, r.Related, kNormal)
 		case "DEPENDENCY_OF", "RUNTIME_DEPENDENCY_OF", "CONTAINED_BY":
-			edge(r.Related, r.Element, scopeFor(r.Type))
-		case "DEV_DEPENDENCY_OF", "TEST_DEPENDENCY_OF", "BUILD_DEPENDENCY_OF", "OPTIONAL_DEPENDENCY_OF", "PROVIDED_DEPENDENCY_OF":
-			edge(r.Related, r.Element, scopeFor(r.Type))
+			edge(r.Related, r.Element, kNormal)
+			hasScopeInfo = hasScopeInfo || r.Type == "RUNTIME_DEPENDENCY_OF"
+		case "DEV_DEPENDENCY_OF", "TEST_DEPENDENCY_OF", "BUILD_DEPENDENCY_OF", "PROVIDED_DEPENDENCY_OF":
+			edge(r.Related, r.Element, kDev)
+			hasScopeInfo = true
+		case "OPTIONAL_DEPENDENCY_OF":
+			edge(r.Related, r.Element, kOptional)
+			hasScopeInfo = true
 		}
 	}
 	if len(g.Roots) == 0 {
@@ -426,20 +444,40 @@ func ingestSPDX(b []byte) (*model.Graph, error) {
 			g.AddEdge(g.Roots[0], id)
 		}
 	}
+	if hasScopeInfo {
+		walk := func(allowed func(kind) bool) map[string]bool {
+			seen := map[string]bool{}
+			stack := append([]string(nil), g.Roots...)
+			for len(stack) > 0 {
+				n := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				if seen[n] {
+					continue
+				}
+				seen[n] = true
+				for _, ch := range g.Edges[n] {
+					if allowed(kinds[[2]string{n, ch}]) {
+						stack = append(stack, ch)
+					}
+				}
+			}
+			return seen
+		}
+		rt := walk(func(k kind) bool { return k == kNormal })
+		opt := walk(func(k kind) bool { return k != kDev })
+		for id, c := range g.Components {
+			switch {
+			case rt[id]:
+				c.Scope = model.ScopeRuntime
+			case opt[id]:
+				c.Scope = model.ScopeOptional
+			default:
+				c.Scope = model.ScopeDev
+			}
+		}
+	}
 	markDirect(g)
 	return g, nil
-}
-
-func scopeFor(rel string) model.Scope {
-	switch rel {
-	case "DEV_DEPENDENCY_OF", "TEST_DEPENDENCY_OF", "BUILD_DEPENDENCY_OF":
-		return model.ScopeDev
-	case "OPTIONAL_DEPENDENCY_OF":
-		return model.ScopeOptional
-	case "RUNTIME_DEPENDENCY_OF":
-		return model.ScopeRuntime
-	}
-	return ""
 }
 
 func isNoAssertion(s string) bool {

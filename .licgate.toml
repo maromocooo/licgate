@@ -1,0 +1,9 @@
+# licgate checks itself. Set `license` to the license you publish licgate
+# under (CI currently passes -l MIT on the command line).
+distribution = "binary"
+fail_on = "block"
+
+[[override]]
+package = "github.com/mattn/go-localereader"
+license = "MIT"
+reason = "v0.0.1 ships no LICENSE file; its README states MIT"

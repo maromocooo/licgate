@@ -357,7 +357,7 @@ func runCheck(cmd, path string, o opts) (int, error) {
 	}
 	res := policy.Evaluate(g, r.settings)
 	meta := report.Meta{Tool: "licgate", Version: version, Project: projectName(abs, g.Roots, g.RootNames), GeneratedAt: time.Now(), FailOn: r.failName}
-	meta.Failed = res.Worst() >= r.failOn
+	meta.Failed = res.Worst() >= r.failOn || res.Incomplete()
 
 	if interactive {
 		return tui.Run(tui.Options{
@@ -388,6 +388,9 @@ func runCheck(cmd, path string, o opts) (int, error) {
 		}
 	} else {
 		os.Stdout.Write(buf.Bytes())
+	}
+	if res.Incomplete() {
+		return 2, nil
 	}
 	if cmd == "notice" || cmd == "sbom" {
 		return 0, nil

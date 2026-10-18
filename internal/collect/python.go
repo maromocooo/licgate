@@ -12,6 +12,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/licgate/licgate/internal/i18n"
+	"github.com/licgate/licgate/internal/license"
 	"github.com/licgate/licgate/internal/model"
 )
 
@@ -25,6 +26,35 @@ func detectPython(dir string) bool {
 }
 
 var reqNameRe = regexp.MustCompile(`^\s*([A-Za-z0-9][A-Za-z0-9._-]*)`)
+
+type reqSpec struct {
+	name        string
+	extras      []string // extras requested: foo[bar,baz]
+	markerExtra string   // `; extra == "x"`: only required when extra x is requested
+}
+
+var (
+	reqExtrasRe = regexp.MustCompile(`^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*\[([^\]]*)\]`)
+	markerExtra = regexp.MustCompile(`\bextra\s*==\s*['"]([^'"]+)['"]`)
+)
+
+func parseReq(req string) reqSpec {
+	var r reqSpec
+	r.name, _ = reqName(req)
+	if m := reqExtrasRe.FindStringSubmatch(req); m != nil {
+		for _, e := range strings.Split(m[1], ",") {
+			if e = pep503(strings.TrimSpace(e)); e != "" {
+				r.extras = append(r.extras, e)
+			}
+		}
+	}
+	if i := strings.Index(req, ";"); i >= 0 {
+		if m := markerExtra.FindStringSubmatch(req[i:]); m != nil {
+			r.markerExtra = pep503(m[1])
+		}
+	}
+	return r
+}
 
 // reqName extracts the distribution name from a PEP 508 requirement and
 // reports whether it only applies to an extra.
@@ -46,16 +76,21 @@ func reqName(req string) (string, bool) {
 type pyRootDeps struct {
 	runtime []string
 	dev     []string
+	extras  map[string][]string // extras requested on root requirements
 	name    string
 	found   bool
 }
 
 func readPyRootDeps(dir string) pyRootDeps {
-	var r pyRootDeps
+	r := pyRootDeps{extras: map[string][]string{}}
 	add := func(dst *[]string, reqs ...string) {
 		for _, q := range reqs {
-			if n, _ := reqName(q); n != "" && n != "python" {
-				*dst = appendUniq(*dst, n)
+			spec := parseReq(q)
+			if spec.name != "" && spec.name != "python" {
+				*dst = appendUniq(*dst, spec.name)
+				for _, e := range spec.extras {
+					r.extras[spec.name] = appendUniq(r.extras[spec.name], e)
+				}
 			}
 		}
 	}
@@ -117,8 +152,14 @@ func readPyRootDeps(dir string) pyRootDeps {
 			add(&r.dev, pp.Tool.UV.DevDependencies...)
 		}
 	}
-	readReq := func(name string, dst *[]string) {
-		f, err := os.Open(filepath.Join(dir, name))
+	seenReq := map[string]bool{}
+	var readReqPath func(p string, dst *[]string)
+	readReqPath = func(p string, dst *[]string) {
+		if seenReq[p] {
+			return
+		}
+		seenReq[p] = true
+		f, err := os.Open(p)
 		if err != nil {
 			return
 		}
@@ -127,12 +168,22 @@ func readPyRootDeps(dir string) pyRootDeps {
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
-			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "-") {
-				continue
+			if i := strings.Index(line, " #"); i >= 0 {
+				line = strings.TrimSpace(line[:i])
 			}
-			add(dst, line)
+			switch {
+			case line == "" || strings.HasPrefix(line, "#"):
+			case strings.HasPrefix(line, "-r ") || strings.HasPrefix(line, "--requirement"):
+				inc := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "--requirement"), "-r"), "="))
+				readReqPath(filepath.Join(filepath.Dir(p), inc), dst)
+			case strings.HasPrefix(line, "-"):
+				// -c constraints, -e editable, --index-url … are not requirements we can resolve
+			default:
+				add(dst, line)
+			}
 		}
 	}
+	readReq := func(name string, dst *[]string) { readReqPath(filepath.Join(dir, name), dst) }
 	readReq("requirements.txt", &r.runtime)
 	readReq("requirements.in", &r.runtime)
 	for _, n := range []string{"requirements-dev.txt", "dev-requirements.txt", "requirements_dev.txt", "requirements-test.txt", "test-requirements.txt", filepath.Join("requirements", "dev.txt"), filepath.Join("requirements", "test.txt")} {
@@ -264,7 +315,7 @@ func collectPythonEnv(dir string, sites []string, roots pyRootDeps) (*model.Grap
 	rootID := pyRootID(dir)
 	g.AddRoot(rootID, rootName)
 	byName := map[string]*model.Component{}
-	reqs := map[string][]string{}
+	reqs := map[string][]reqSpec{}
 	for _, sp := range sites {
 		infos, _ := filepath.Glob(filepath.Join(sp, "*.dist-info", "METADATA"))
 		eggs, _ := filepath.Glob(filepath.Join(sp, "*.egg-info", "PKG-INFO"))
@@ -287,36 +338,90 @@ func collectPythonEnv(dir string, sites []string, roots pyRootDeps) (*model.Grap
 			byName[key] = c
 			g.Components[c.ID] = c
 			for _, r := range d.requires {
-				if n, extraOnly := reqName(r); n != "" && !extraOnly {
-					reqs[key] = appendUniq(reqs[key], n)
+				if spec := parseReq(r); spec.name != "" {
+					reqs[key] = append(reqs[key], spec)
 				}
 			}
 		}
 	}
-	for from, tos := range reqs {
-		for _, t := range tos {
-			if tc, ok := byName[t]; ok {
+	// Edges for every requirement (incl. extras) so paths can be shown.
+	for from, specs := range reqs {
+		for _, sp := range specs {
+			if tc, ok := byName[sp.name]; ok {
 				g.AddEdge(byName[from].ID, tc.ID)
 			}
 		}
 	}
-	var rt, dv []string
-	for _, n := range roots.runtime {
+	// Reachability honours extras: "uvicorn[standard]" pulls in uvicorn's
+	// `extra == "standard"` requirements too.
+	reach := func(starts []string) map[string]bool {
+		type st struct{ name, extra string }
+		seen := map[st]bool{}
+		out := map[string]bool{}
+		var stack []st
+		for _, n := range starts {
+			stack = append(stack, st{n, ""})
+			for _, e := range roots.extras[n] {
+				stack = append(stack, st{n, e})
+			}
+		}
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if seen[cur] {
+				continue
+			}
+			seen[cur] = true
+			c, ok := byName[cur.name]
+			if !ok {
+				continue
+			}
+			out[c.ID] = true
+			for _, sp := range reqs[cur.name] {
+				if sp.markerExtra != cur.extra {
+					continue
+				}
+				stack = append(stack, st{sp.name, ""})
+				for _, e := range sp.extras {
+					stack = append(stack, st{sp.name, e})
+				}
+			}
+		}
+		return out
+	}
+	for _, n := range append(append([]string{}, roots.runtime...), roots.dev...) {
 		if c, ok := byName[n]; ok {
 			g.AddEdge(rootID, c.ID)
 			c.Direct = true
-			rt = append(rt, c.ID)
 		}
 	}
-	for _, n := range roots.dev {
-		if c, ok := byName[n]; ok {
-			g.AddEdge(rootID, c.ID)
-			c.Direct = true
-			dv = append(dv, c.ID)
-		}
+	rtSet, dvSet := reach(roots.runtime), reach(roots.dev)
+	rootsKnown := roots.found && len(roots.runtime)+len(roots.dev) > 0
+	for id, c := range g.Components {
+		setReachScope(c, rtSet[id], dvSet[id], rootsKnown)
 	}
-	applyReachScopes(g, rt, dv, roots.found && len(rt)+len(dv) > 0)
 	return g, nil
+}
+
+// installerTools are commonly present in a virtualenv without being
+// dependencies of anything.
+var installerTools = map[string]bool{"pip": true, "setuptools": true, "wheel": true, "distribute": true, "uv": true, "virtualenv": true, "pkg-resources": true}
+
+func setReachScope(c *model.Component, rt, dv, rootsKnown bool) {
+	switch {
+	case rt:
+		c.Scope = model.ScopeRuntime
+	case dv:
+		c.Scope = model.ScopeDev
+	case installerTools[pep503(c.Name)]:
+		c.Scope = model.ScopeDev
+	case rootsKnown:
+		// Not reachable from what the project declares. Could be a tool —
+		// or a dependency we failed to trace (markers, plugins). Keep it in
+		// the evaluation rather than silently skipping it.
+		c.Scope = model.ScopeUnknown
+		c.LicenseNotes = append(c.LicenseNotes, i18n.T("c.unreachable"))
+	}
 }
 
 // applyReachScopes sets scopes from reachability. When the root's
@@ -326,15 +431,10 @@ func applyReachScopes(g *model.Graph, rt, dv []string, rootsKnown bool) {
 	rtSet := g.ReachableFrom(rt)
 	dvSet := g.ReachableFrom(dv)
 	for id, c := range g.Components {
-		switch {
-		case rtSet[id]:
-			c.Scope = model.ScopeRuntime
-		case dvSet[id]:
-			c.Scope = model.ScopeDev
-		case rootsKnown:
-			c.Scope = model.ScopeDev
-			c.LicenseNotes = append(c.LicenseNotes, i18n.T("c.unreachable"))
+		if c.Scope == model.ScopeDev && !rtSet[id] {
+			continue // explicit dev marking from the lockfile
 		}
+		setReachScope(c, rtSet[id], dvSet[id], rootsKnown)
 	}
 }
 
@@ -343,7 +443,15 @@ func pythonLicense(c *model.Component, d *pyDist) {
 		declare(c, "metadata", d.licExpr)
 	}
 	if c.License == "" && d.licText != "" {
-		declare(c, "metadata", d.licText)
+		n := license.Normalize(d.licText)
+		cls := fromClassifiers(d.classifiers)
+		if !n.OK() && cls != "" && !license.HasRestrictiveWords(d.licText) {
+			// Free-text "License:" fields are often junk ("BSD-style, see
+			// LICENSE"); the trove classifiers are structured.
+			c.Declared = appendUniq(c.Declared, d.licText)
+		} else {
+			declare(c, "metadata", d.licText)
+		}
 	}
 	if c.License == "" {
 		if n := fromClassifiers(d.classifiers); n != "" {
@@ -518,32 +626,61 @@ func collectPoetryLock(dir string, roots pyRootDeps, o *Options) (*model.Graph, 
 
 var pinRe = regexp.MustCompile(`^\s*([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?\s*==\s*([^\s;#\\]+)`)
 
-func collectRequirementsPins(dir string, o *Options) (*model.Graph, error) {
-	f, err := os.Open(filepath.Join(dir, "requirements.txt"))
-	if err != nil {
-		return nil, err
+// requirementLines returns requirement lines from a requirements file,
+// following -r / --requirement includes.
+func requirementLines(p string, seen map[string]bool) []string {
+	if seen[p] {
+		return nil
 	}
-	defer f.Close()
+	seen[p] = true
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if i := strings.Index(line, " #"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		switch {
+		case line == "" || strings.HasPrefix(line, "#"):
+		case strings.HasPrefix(line, "-r ") || strings.HasPrefix(line, "--requirement"):
+			inc := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "--requirement"), "-r"), "="))
+			out = append(out, requirementLines(filepath.Join(filepath.Dir(p), inc), seen)...)
+		case strings.HasPrefix(line, "-"):
+		default:
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func collectRequirementsPins(dir string, o *Options) (*model.Graph, error) {
+	lines := requirementLines(filepath.Join(dir, "requirements.txt"), map[string]bool{})
 	g := model.NewGraph()
 	g.Sources = append(g.Sources, "python:requirements.txt")
 	rootID := pyRootID(dir)
 	g.AddRoot(rootID, filepath.Base(dir))
-	sc := bufio.NewScanner(f)
 	unpinned := 0
-	for sc.Scan() {
-		line := sc.Text()
+	for _, line := range lines {
 		if m := pinRe.FindStringSubmatch(line); m != nil {
 			c := newComponent("pypi", m[1], m[3])
 			c.Scope = model.ScopeRuntime
 			g.Components[c.ID] = c
 			g.AddEdge(rootID, c.ID)
 			c.Direct = true
-		} else if n, _ := reqName(line); n != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") && !strings.HasPrefix(strings.TrimSpace(line), "-") {
+		} else if n, _ := reqName(line); n != "" {
 			unpinned++
 		}
 	}
+	if unpinned > 0 && len(g.Components) == 0 {
+		return nil, fmt.Errorf("requirements.txt has no pinned (==) requirements and no virtualenv was found: create the environment (e.g. `python -m venv .venv && .venv/bin/pip install -r requirements.txt`) or pass --sbom")
+	}
 	if unpinned > 0 {
 		g.Warnings = append(g.Warnings, fmt.Sprintf("python (requirements.txt): %d unpinned requirement(s) skipped and transitive dependencies are unknown — create a virtualenv for a complete picture", unpinned))
+	} else {
+		g.Warnings = append(g.Warnings, "python (requirements.txt): no virtualenv found, so transitive dependencies are unknown — create one for a complete picture")
 	}
 	if !o.Online {
 		g.Warnings = append(g.Warnings, "python (requirements.txt): no virtualenv found, licenses are unknown without --online")

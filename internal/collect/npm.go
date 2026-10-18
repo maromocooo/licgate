@@ -365,7 +365,9 @@ func readNPMLock(p string) (map[string]*npmEntry, error) {
 				loc: loc, name: name, version: lp.Version,
 				licenses: npmLicenses(lp.License, nil),
 				deps:     sortedKeys(lp.Dependencies, lp.OptionalDependencies, lp.PeerDependencies),
-				dev:      lp.Dev || lp.DevOptional, optional: lp.Optional, hasFlags: true, link: lp.Link,
+				// devOptional = in the dev tree AND an optional dep of a
+				// non-dev package, so it can ship: treat as optional.
+				dev: lp.Dev, optional: lp.Optional || lp.DevOptional, hasFlags: true, link: lp.Link,
 			}
 			if lp.Link {
 				e.version = lp.Resolved // target location

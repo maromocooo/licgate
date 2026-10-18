@@ -51,6 +51,59 @@ func hasAny(t string, phrases ...string) bool {
 // the GPL…), so the family is chosen by whichever marker phrase occurs
 // EARLIEST in the text — license files start with their own title.
 func DetectText(raw string) Detection {
+	t0 := normText(raw)
+	head := t0
+	if len(head) > 1000 {
+		head = head[:1000]
+	}
+	// Explicit proprietary terms at the top win over any open source license
+	// merely mentioned for bundled components.
+	if hasAny(head, proprietaryPhrases...) {
+		return Detection{ID: RefProprietary, Confidence: 0.8}
+	}
+	d := detectBase(raw)
+	// Restrictions anywhere in the file (a Commons Clause appended after an
+	// MIT text, "Good, not Evil", non-commercial or field-of-use clauses)
+	// override or narrow whatever open source text was found.
+	if r, ok := restriction(normText(raw)); ok {
+		if d.ID == "" || d.ID == r {
+			return Detection{ID: r, Confidence: 0.9}
+		}
+		if info, ok := Lookup(d.ID); ok && (info.Category == CatSourceAvailable || info.Category == CatProprietary) {
+			return d
+		}
+		return Detection{ID: d.ID + " AND " + r, Confidence: 0.9}
+	}
+	return d
+}
+
+var proprietaryPhrases = []string{
+	"proprietary and confidential", "confidential and proprietary", "you may not copy, modify", "you may not copy or modify",
+	"may not be copied, modified", "unauthorized copying of this file", "unauthorized copying", "strictly prohibited",
+	"without a written agreement", "without a separate written agreement", "is the proprietary property of",
+}
+
+// RefFieldOfUse marks field-of-use restrictions (no military / nuclear use).
+// It is deliberately not in the catalog, so it always needs a human.
+const RefFieldOfUse = "LicenseRef-licgate-field-of-use-restriction"
+
+func restriction(t string) (string, bool) {
+	switch {
+	case hasAny(t, `"commons clause" license condition`, "commons clause license condition", "the commons clause"):
+		return RefCommons, true
+	case has(t, "shall be used for good, not evil"):
+		return "JSON", true
+	case hasAny(t, "non-commercial use only", "noncommercial use only", "for non-commercial purposes only",
+		"for noncommercial purposes only", "not for commercial use", "may not be used for commercial purposes",
+		"solely for non-commercial", "solely for noncommercial", "personal use only", "non-commercial purposes only"):
+		return RefNonFree, true
+	case hasAny(t, "military", "nuclear facility", "nuclear facilities"):
+		return RefFieldOfUse, true
+	}
+	return "", false
+}
+
+func detectBase(raw string) Detection {
 	// Files that start with their own terms and then append third-party
 	// notices after a separator line: judge the leading part on its own so
 	// a bundled BSD/MIT notice is not mistaken for the package's license.
@@ -131,11 +184,13 @@ func detectNorm(t string) Detection {
 	return Detection{}
 }
 
+// grantPhrases are actual permission grants. License names alone ("includes
+// components under the Apache License") are not grants.
 var grantPhrases = []string{
 	"permission is hereby granted", "redistribution and use", "permission to use, copy",
-	"is free software", "released under the", "apache license", "mozilla public license", "general public license",
-	"this is free and unencumbered", "licensed under the mit", "licensed under the bsd", "licensed under the isc",
-	"boost software license", "eclipse public license", "creative commons",
+	"is free software", "you can redistribute it and/or modify", "this is free and unencumbered",
+	"licensed under the apache license", "licensed under the mit license", "licensed under the bsd",
+	"licensed under the mozilla public license", "licensed under the eclipse public license",
 }
 
 type marker struct {
@@ -223,7 +278,8 @@ var markers = []marker{
 		return Detection{ID: "EUPL-1.2", Confidence: 0.9}
 	}},
 	{[]string{"apache license"}, func(t string) Detection {
-		if hasAny(t, "version 2.0", "2.0") {
+		if hasAny(t, "apache license, version 2.0", "apache license version 2.0", "apache license 2.0",
+			"apache license, v2", "apache license v2", "version 2.0, january 2004", "apache-2.0") {
 			return Detection{ID: "Apache-2.0", Confidence: 0.95}
 		}
 		if has(t, "version 1.1") {
@@ -240,8 +296,9 @@ var markers = []marker{
 	{[]string{"the artistic license 2.0"}, fixed("Artistic-2.0", 0.9)},
 	{[]string{"unicode, inc. license agreement", "unicode license v3", "unicode license agreement"}, fixed("Unicode-3.0", 0.8)},
 	{[]string{"universal permissive license"}, fixed("UPL-1.0", 0.9)},
+	{[]string{"licensed under the mit license", "released under the mit license", "under the terms of the mit license"}, fixed("MIT", 0.85)},
 	{[]string{"permission is hereby granted, free of charge, to any person obtaining a copy"}, func(t string) Detection {
-		if has(t, "the above copyright notice and this permission notice shall be included") {
+		if has(t, "the above copyright notice and this permission notice") {
 			return Detection{ID: "MIT", Confidence: 0.95}
 		}
 		return Detection{ID: "MIT-0", Confidence: 0.85}
@@ -267,7 +324,7 @@ var markers = []marker{
 }
 
 var weakMarkers = []marker{
-	{[]string{"licensed under the mit license", "released under the mit license", "under the terms of the mit license", "mit license"}, fixed("MIT", 0.8)},
+	{[]string{"mit license"}, fixed("MIT", 0.7)},
 	{[]string{"public domain"}, func(t string) Detection {
 		if len(t) < 1500 && !has(t, "all rights reserved") {
 			return Detection{ID: RefPublicDomain, Confidence: 0.6}
